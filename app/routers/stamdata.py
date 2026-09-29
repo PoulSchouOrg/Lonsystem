@@ -17,6 +17,7 @@ from database.models import (
     Holiday,
 )
 from database.session import get_db
+from utils.natural_sort import natural_key
 
 router = APIRouter(prefix="/api/stamdata", tags=["stamdata"])
 _access = require_permission("stamdata")
@@ -657,7 +658,7 @@ def list_dispatcher_groups(
     current_user: AppUser = Depends(_access),
     db: Session = Depends(get_db),
 ):
-    rows = db.query(DispatcherGroup).order_by(DispatcherGroup.name).all()
+    rows = sorted(db.query(DispatcherGroup).all(), key=lambda g: natural_key(g.name))
     return [_dispatcher_group_row(r) for r in rows]
 
 

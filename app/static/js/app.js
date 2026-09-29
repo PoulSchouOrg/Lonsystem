@@ -172,6 +172,10 @@ async function downloadFile(path, body, fallbackFilename) {
 // jq: JSON.stringify der er sikker til brug i onclick="..." HTML-attributter
 const jq = x => JSON.stringify(x).replace(/"/g, "&quot;");
 
+// Naturlig sortering af navne med tal: 0, 00, 000, 1, 2 … 10 (ikke 1, 10, 2). Kortest først ved samme talværdi.
+const _naturalCollator = new Intl.Collator("da", { numeric: true, sensitivity: "base" });
+const naturalCompare = (a, b) => _naturalCollator.compare(a, b) || a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+
 // ── UI helpers ─────────────────────────────────────────────────────────────
 function toast(msg, type = "info") {
   const el = document.createElement("div");
@@ -5607,6 +5611,7 @@ async function loadStamdataDispatcherGroups() {
   if (!tbody) return;
   try {
     const rows = await GET("/api/stamdata/dispatcher-groups");
+    rows.sort((a, b) => naturalCompare(a.name, b.name));
     if (!rows.length) {
       tbody.innerHTML = `<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-light)">Ingen disponentgrupper oprettet endnu</td></tr>`;
       return;
@@ -6101,7 +6106,7 @@ function fillEmployeeDispatcherGroupFilter() {
   const sel = document.getElementById("employee-filter-dispatcher-group");
   if (!sel) return;
   const cur = sel.value;
-  const sorted = state.dispatcherGroups.slice().sort((a, b) => a.name.localeCompare(b.name, "da"));
+  const sorted = state.dispatcherGroups.slice().sort((a, b) => naturalCompare(a.name, b.name));
   sel.innerHTML = `<option value="">Alle afdelinger</option>` +
     `<option value="none">Ingen gruppe</option>` +
     sorted.map(g => `<option value="${g.id}">${h(g.name)}</option>`).join("");

@@ -11,6 +11,7 @@ from calculators.rates_loader import (
     seniority_variant_exists_from_db,
 )
 from database.session import get_db
+from utils.natural_sort import natural_key
 from database.models import AppUser, DispatcherGroup, Employee, MasterAgreementKind, Paragraf56AlertDismissal, Vehicle
 from database.schemas import (
     AnciennitetsAlert,
@@ -159,7 +160,7 @@ def _agreement_type_required(db: Session, agreement_kind: str) -> bool:
 def dispatcher_groups(current_user: AppUser = Depends(get_current_user),
                       db: Session = Depends(get_db)):
     """Liste over disponentgrupper – bruges til at udfylde medarbejder-modalens afkrydsningsliste."""
-    return db.query(DispatcherGroup).order_by(DispatcherGroup.name).all()
+    return sorted(db.query(DispatcherGroup).all(), key=lambda g: natural_key(g.name))
 
 
 def _resolve_dispatcher_group(db: Session, group_id: Optional[int]) -> Optional[DispatcherGroup]:

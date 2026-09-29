@@ -15,6 +15,7 @@ from calculators.pay_period import get_or_create_period_for_date
 from calculators.rates_loader import load_agreement_types_from_db, get_active_supplement_for_period
 from database.models import Activity, ActivityStatus, AppUser, DispatcherGroup, Employee
 from database.session import get_db
+from utils.natural_sort import natural_key
 
 router = APIRouter(prefix="/api/absence-overview", tags=["absence-overview"])
 
@@ -190,7 +191,10 @@ def employee_options(
         .all()
     )
     used_group_ids = {e.dispatcher_group_id for e in emps if e.dispatcher_group_id}
-    groups = db.query(DispatcherGroup).filter(DispatcherGroup.id.in_(used_group_ids)).order_by(DispatcherGroup.name).all()
+    groups = sorted(
+        db.query(DispatcherGroup).filter(DispatcherGroup.id.in_(used_group_ids)).all(),
+        key=lambda g: natural_key(g.name),
+    )
     return {
         "employees": [
             {"id": e.id, "name": e.name, "dispatcher_group_id": e.dispatcher_group_id}
