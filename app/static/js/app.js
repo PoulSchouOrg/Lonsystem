@@ -2729,6 +2729,10 @@ function openManualActivityModal(empId = null, dateIso = null, opts = {}) {
   }
   // Genkør type-afhængige standardværdier nu hvor medarbejder+dato er udfyldt
   // (relevant for Vagtplans "ferie"-default, som skal kende dato/medarbejder for at beregne timer).
+  // Vognnummerfeltet nulstilles først: det første kald ovenfor kørte før medarbejderen var valgt
+  // og kan have udfyldt feltet ud fra den alfabetisk første medarbejders disponentgruppe.
+  document.getElementById("manual-reg").value = "";
+  document.getElementById("manual-reg-hint").textContent = "";
   updateManualTypeVisibility();
   openModal("modal-manual-activity");
 }
