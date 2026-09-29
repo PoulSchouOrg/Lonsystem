@@ -3288,19 +3288,60 @@ function _renderEmpFastBilVehicleResults(query) {
     <div class="emp-fbv-item" data-id="${v.id}" data-num="${h(v.vehicle_number)}" style="padding:8px 10px;cursor:pointer;font-size:13px">
       ${h(v.vehicle_number)} <span style="color:var(--text-light)">– ${h(v.registration_number)}</span>
     </div>`).join("") || `<div style="padding:8px 10px;color:var(--text-light);font-size:13px">Ingen køretøjer fundet</div>`;
-  dropdown.querySelectorAll(".emp-fbv-item").forEach(el => {
-    el.addEventListener("mouseover", () => el.style.background = "var(--bg)");
-    el.addEventListener("mouseout", () => el.style.background = "");
-    el.addEventListener("click", () => {
-      document.getElementById("emp-fast-bil-vehicle-search").value = el.dataset.num;
-      document.getElementById("emp-fast-bil-vehicle-id").value = el.dataset.id;
-      dropdown.style.display = "none";
-    });
+  _empFastBilHighlightIndex = -1;
+  dropdown.querySelectorAll(".emp-fbv-item").forEach((el, idx) => {
+    el.addEventListener("mouseover", () => _setEmpFastBilHighlight(idx));
+    el.addEventListener("mouseout", () => _setEmpFastBilHighlight(-1));
+    el.addEventListener("click", () => _selectEmpFastBilVehicle(el));
   });
   dropdown.style.display = "block";
 }
+
+let _empFastBilHighlightIndex = -1;
+
+function _setEmpFastBilHighlight(index) {
+  const items = document.querySelectorAll("#emp-fast-bil-vehicle-dropdown .emp-fbv-item");
+  items.forEach((el, i) => { el.style.background = i === index ? "var(--bg)" : ""; });
+  _empFastBilHighlightIndex = index;
+}
+
+function _moveEmpFastBilHighlight(delta) {
+  const items = document.querySelectorAll("#emp-fast-bil-vehicle-dropdown .emp-fbv-item");
+  if (!items.length) return;
+  let next = _empFastBilHighlightIndex + delta;
+  if (next < 0) next = items.length - 1;
+  if (next >= items.length) next = 0;
+  _setEmpFastBilHighlight(next);
+  items[next].scrollIntoView({ block: "nearest" });
+}
+
+function _selectEmpFastBilVehicle(el) {
+  document.getElementById("emp-fast-bil-vehicle-search").value = el.dataset.num;
+  document.getElementById("emp-fast-bil-vehicle-id").value = el.dataset.id;
+  document.getElementById("emp-fast-bil-vehicle-dropdown").style.display = "none";
+}
+
 document.getElementById("emp-fast-bil-vehicle-search")?.addEventListener("input", function () { _renderEmpFastBilVehicleResults(this.value); });
 document.getElementById("emp-fast-bil-vehicle-search")?.addEventListener("focus", function () { _renderEmpFastBilVehicleResults(this.value); });
+document.getElementById("emp-fast-bil-vehicle-search")?.addEventListener("keydown", function (e) {
+  const dropdown = document.getElementById("emp-fast-bil-vehicle-dropdown");
+  if (dropdown.style.display !== "block") return;
+  if (e.key === "Tab" || e.key === "ArrowDown") {
+    e.preventDefault();
+    _moveEmpFastBilHighlight(e.shiftKey ? -1 : 1);
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    _moveEmpFastBilHighlight(-1);
+  } else if (e.key === "Enter") {
+    const items = dropdown.querySelectorAll(".emp-fbv-item");
+    if (_empFastBilHighlightIndex >= 0 && items[_empFastBilHighlightIndex]) {
+      e.preventDefault();
+      _selectEmpFastBilVehicle(items[_empFastBilHighlightIndex]);
+    }
+  } else if (e.key === "Escape") {
+    dropdown.style.display = "none";
+  }
+});
 document.addEventListener("click", (e) => {
   if (!e.target.closest("#emp-fast-bil-vehicle-search, #emp-fast-bil-vehicle-dropdown")) {
     const dropdown = document.getElementById("emp-fast-bil-vehicle-dropdown");
