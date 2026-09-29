@@ -3728,6 +3728,9 @@ function renderVehicleList() {
     container.innerHTML = `<div class="empty-state"><div class="icon">🚛</div><h3>Ingen vogne</h3></div>`;
     return;
   }
+  vehicles = vehicles.slice().sort((a, b) =>
+    String(a.vehicle_number ?? "").localeCompare(String(b.vehicle_number ?? ""), "da", { numeric: true })
+  );
   for (const v of vehicles) {
     const initials = v.registration_number.slice(0, 2).toUpperCase();
     const div = document.createElement("div");
