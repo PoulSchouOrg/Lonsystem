@@ -2274,20 +2274,21 @@ function updateManualTypeVisibility() {
     applySygdomDefaults();
     applyBarselTerminsdatoDefault();
   }
-  applyDispatcherGroupVehicleDefault();
+  applyAbsenceVehicleDefault();
   applyDagsplanVehicleDefault();
 }
 
-// Foreslår vognnummeret fra medarbejderens disponentgruppe ved fraværsregistrering.
-// Overskriver ikke et allerede udfyldt felt.
-function applyDispatcherGroupVehicleDefault() {
+// Foreslår medarbejderens "Vognnummer ved fravær" ved fraværsregistrering.
+// Disponentgruppens vogn bruges IKKE som fallback. Overskriver ikke et
+// allerede udfyldt felt.
+function applyAbsenceVehicleDefault() {
   const type = document.getElementById("manual-type").value;
   if (type === "overnatning" || !ABSENCE_TYPES.has(type)) return;
   const regField = document.getElementById("manual-reg");
   if (regField.value.trim()) return;
   const empId = parseInt(document.getElementById("manual-employee").value);
   const emp = state.employees.find(e => e.id === empId);
-  const vehicleNumber = emp?.dispatcher_group?.vehicle_number;
+  const vehicleNumber = emp?.absence_vehicle_number;
   if (vehicleNumber) {
     regField.value = vehicleNumber;
     _updateManualRegHint(); // kun hint - IKKE _renderManualRegDropdown, feltet er allerede udfyldt korrekt
@@ -2736,7 +2737,7 @@ async function openManualActivityModal(empId = null, dateIso = null, opts = {}) 
     if (t === "barsel")                             applyBarselTerminsdatoDefault(true);
     document.getElementById("manual-reg").value = "";
     document.getElementById("manual-reg-hint").textContent = "";
-    applyDispatcherGroupVehicleDefault();
+    applyAbsenceVehicleDefault();
     applyDagsplanVehicleDefault();
   };
   // Lyt på dato-ændring inde i dt-picker containeren
@@ -3397,6 +3398,82 @@ document.addEventListener("click", (e) => {
   }
 });
 
+// "Vognnummer ved fravær" – søgbar vogn fra Vognpark. Skrives der i feltet
+// uden at vælge en vogn i listen, nulstilles det skjulte id, så feltet
+// tæller som ikke-udfyldt ved gem.
+let _empAbsenceVehicleHighlightIndex = -1;
+
+function _renderEmpAbsenceVehicleResults(query) {
+  const dropdown = document.getElementById("emp-absence-vehicle-dropdown");
+  const q = query.trim().toUpperCase();
+  const matches = state.vehicles.filter(v =>
+    v.vehicle_number.toUpperCase().includes(q) || v.registration_number.toUpperCase().includes(q));
+  dropdown.innerHTML = matches.map(v => `
+    <div class="emp-abv-item" data-id="${v.id}" data-num="${h(v.vehicle_number)}" style="padding:8px 10px;cursor:pointer;font-size:13px">
+      ${h(v.vehicle_number)} <span style="color:var(--text-light)">– ${h(v.registration_number)}</span>
+    </div>`).join("") || `<div style="padding:8px 10px;color:var(--text-light);font-size:13px">Ingen køretøjer fundet</div>`;
+  _empAbsenceVehicleHighlightIndex = -1;
+  dropdown.querySelectorAll(".emp-abv-item").forEach((el, idx) => {
+    el.addEventListener("mouseover", () => _setEmpAbsenceVehicleHighlight(idx));
+    el.addEventListener("mouseout", () => _setEmpAbsenceVehicleHighlight(-1));
+    el.addEventListener("click", () => _selectEmpAbsenceVehicle(el));
+  });
+  dropdown.style.display = "block";
+}
+
+function _setEmpAbsenceVehicleHighlight(index) {
+  const items = document.querySelectorAll("#emp-absence-vehicle-dropdown .emp-abv-item");
+  items.forEach((el, i) => { el.style.background = i === index ? "var(--bg)" : ""; });
+  _empAbsenceVehicleHighlightIndex = index;
+}
+
+function _moveEmpAbsenceVehicleHighlight(delta) {
+  const items = document.querySelectorAll("#emp-absence-vehicle-dropdown .emp-abv-item");
+  if (!items.length) return;
+  let next = _empAbsenceVehicleHighlightIndex + delta;
+  if (next < 0) next = items.length - 1;
+  if (next >= items.length) next = 0;
+  _setEmpAbsenceVehicleHighlight(next);
+  items[next].scrollIntoView({ block: "nearest" });
+}
+
+function _selectEmpAbsenceVehicle(el) {
+  document.getElementById("emp-absence-vehicle-search").value = el.dataset.num;
+  document.getElementById("emp-absence-vehicle-id").value = el.dataset.id;
+  document.getElementById("emp-absence-vehicle-dropdown").style.display = "none";
+}
+
+document.getElementById("emp-absence-vehicle-search")?.addEventListener("input", function () {
+  document.getElementById("emp-absence-vehicle-id").value = "";
+  _renderEmpAbsenceVehicleResults(this.value);
+});
+document.getElementById("emp-absence-vehicle-search")?.addEventListener("focus", function () { _renderEmpAbsenceVehicleResults(this.value); });
+document.getElementById("emp-absence-vehicle-search")?.addEventListener("keydown", function (e) {
+  const dropdown = document.getElementById("emp-absence-vehicle-dropdown");
+  if (dropdown.style.display !== "block") return;
+  if (e.key === "Tab" || e.key === "ArrowDown") {
+    e.preventDefault();
+    _moveEmpAbsenceVehicleHighlight(e.shiftKey ? -1 : 1);
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    _moveEmpAbsenceVehicleHighlight(-1);
+  } else if (e.key === "Enter") {
+    const items = dropdown.querySelectorAll(".emp-abv-item");
+    if (_empAbsenceVehicleHighlightIndex >= 0 && items[_empAbsenceVehicleHighlightIndex]) {
+      e.preventDefault();
+      _selectEmpAbsenceVehicle(items[_empAbsenceVehicleHighlightIndex]);
+    }
+  } else if (e.key === "Escape") {
+    dropdown.style.display = "none";
+  }
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#emp-absence-vehicle-search, #emp-absence-vehicle-dropdown")) {
+    const dropdown = document.getElementById("emp-absence-vehicle-dropdown");
+    if (dropdown) dropdown.style.display = "none";
+  }
+});
+
 function onAgreementKindChange() {
   const key = document.getElementById("emp-agreement-kind").value;
   const kind = state.agreementKinds.find(k => k.key === key);
@@ -3470,6 +3547,8 @@ async function openNewEmployeeModal() {
   document.getElementById("emp-fast-bil-vehicle-row").style.display = "none";
   document.getElementById("emp-fast-bil-vehicle-search").value = "";
   document.getElementById("emp-fast-bil-vehicle-id").value = "";
+  document.getElementById("emp-absence-vehicle-search").value = "";
+  document.getElementById("emp-absence-vehicle-id").value = "";
   buildScheduleTable(null);
   await _loadEmpCvrDropdown(null);
   document.getElementById("emp-active-supplement").value = "";
@@ -3512,6 +3591,8 @@ async function openEditEmployee(id) {
   document.getElementById("emp-fast-bil-vehicle-row").style.display = e.fast_bil ? "" : "none";
   document.getElementById("emp-fast-bil-vehicle-search").value = e.fast_bil_vehicle_number || "";
   document.getElementById("emp-fast-bil-vehicle-id").value = e.fast_bil_vehicle_id || "";
+  document.getElementById("emp-absence-vehicle-search").value = e.absence_vehicle_number || "";
+  document.getElementById("emp-absence-vehicle-id").value = e.absence_vehicle_id || "";
   buildScheduleTable(e.work_schedule);
   await _loadEmpCvrDropdown(e.cvr_number || null);
   if (state.currentUser?.permissions?.includes("manage_employee_supplements")) {
@@ -3560,9 +3641,15 @@ async function confirmEmployee() {
     fast_bil: document.getElementById("emp-fast-bil").checked,
     fast_bil_vehicle_id: document.getElementById("emp-fast-bil-vehicle-id").value
       ? parseInt(document.getElementById("emp-fast-bil-vehicle-id").value) : null,
+    absence_vehicle_id: document.getElementById("emp-absence-vehicle-id").value
+      ? parseInt(document.getElementById("emp-absence-vehicle-id").value) : null,
   };
   if (!body.employee_number || !body.first_name || !body.last_name || !body.hire_date) {
     toast("Udfyld lønnummer, navn og ansættelsesdato", "error");
+    return;
+  }
+  if (!body.absence_vehicle_id) {
+    toast("Vælg et vognnummer ved fravær fra listen", "error");
     return;
   }
   if (body.paragraf_56 && (!body.paragraf_56_start_date || !body.paragraf_56_end_date)) {

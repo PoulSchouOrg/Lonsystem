@@ -98,6 +98,9 @@ class Employee(Base):
     fast_bil = Column(Boolean, default=False, nullable=False)
     fast_bil_vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True)
     fast_bil_vehicle = relationship("Vehicle", foreign_keys=[fast_bil_vehicle_id], backref="fast_bil_employees")
+    # "Vognnummer ved fravær" – default vognnummer når der oprettes fravær for medarbejderen
+    absence_vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True)
+    absence_vehicle = relationship("Vehicle", foreign_keys=[absence_vehicle_id])
 
     @property
     def name(self) -> str:

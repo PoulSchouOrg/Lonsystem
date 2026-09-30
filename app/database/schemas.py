@@ -57,6 +57,7 @@ class EmployeeCreate(BaseModel):
     fast_bil: bool = False
     ot_extra_alle_timer: bool = False
     fast_bil_vehicle_id: Optional[int] = None
+    absence_vehicle_id: Optional[int] = None
 
 
 class EmployeeUpdate(BaseModel):
@@ -86,6 +87,7 @@ class EmployeeUpdate(BaseModel):
     fast_bil: Optional[bool] = None
     ot_extra_alle_timer: Optional[bool] = None
     fast_bil_vehicle_id: Optional[int] = None
+    absence_vehicle_id: Optional[int] = None
 
 
 class EmployeeResponse(BaseModel):
@@ -122,6 +124,8 @@ class EmployeeResponse(BaseModel):
     ot_extra_alle_timer: bool
     fast_bil_vehicle_id: Optional[int] = None
     fast_bil_vehicle_number: Optional[str] = None
+    absence_vehicle_id: Optional[int] = None
+    absence_vehicle_number: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
