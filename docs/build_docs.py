@@ -367,7 +367,7 @@ def build_teknisk():
             ["auto_approved / auto_approval_flags", "Boolean / JSON", "Sat af den statistiske baseline-auto-godkendelse (kapitel 18) – flags er en liste af menneskelæsbare afvigelsesårsager, tom hvis auto-godkendt"],
             ["absence_group_id",      "Integer (opt.)", "Fælles id for aktiviteter der stammer fra samme flerdags-fraværsperiode ('Til dato' ved oprettelse) – bruges til at redigere hele periodens datointerval bagefter (afsnit 8.8)"],
             ["hidden_from_vagtplan",  "Boolean, default false", "Skjuler aktiviteten fra Vagtplan-visningen uden at deaktivere den. Nulstilles automatisk ved 'Genåbn'. Backend-understøttet (POST /{id}/hide-from-vagtplan), men INGEN knap i frontend kalder endpointet pt. – reelt utilgængelig for brugeren i den nuværende UI"],
-            ["original_segments",     "JSON (opt.)",    "Segmenternes tilstand før første 'Ret linje'/'Tilpas'-rettelse (afsnit 8.5) – bruges til at diffe mod ved en senere DDD-genimport, uafhængigt af original_start_time/original_end_time"],
+            ["original_segments",     "JSON (opt.)",    "Segmenternes tilstand før første 'Ret til andet arbejde'/'Tilpas'-rettelse (afsnit 8.5) – bruges til at diffe mod ved en senere DDD-genimport, uafhængigt af original_start_time/original_end_time"],
         ]
     )
 
@@ -1081,7 +1081,7 @@ def build_teknisk():
             ["5",  "Starttid",                 "Aktivitetens starttidspunkt."],
             ["6",  "Sluttid",                  "Aktivitetens sluttidspunkt."],
             ["7",  "Total tid",                "Alle arbejdede timer den dag (efter fratrukne pauser), uanset om de udløser tillæg."],
-            ["8",  "Pause i alt (min)",        "Summen af registrerede pauser den dag, i minutter. Segmenter der er rettet fra pause til arbejde via 'Ret linje' (activities.py: correct_segment) tælles ikke med."],
+            ["8",  "Pause i alt (min)",        "Summen af registrerede pauser den dag, i minutter. Segmenter der er rettet fra pause til arbejde via 'Ret til andet arbejde' (activities.py: correct_segment) tælles ikke med."],
             ["9",  "Normal tid",               "Kun de timer af Total tid der IKKE udløser et overtidstillæg (kolonne 7 minus kolonne 10-12). Ved fravær vises fraværstypen her i stedet for et tal."],
             ["10", "Overtid 1 time før",       "Timer i 05-06-vinduet (OT_BEFORE)."],
             ["11", "Overtid 1-3 timer efter",  "OT_13-timer, inkl. søndags-/helligdagskode 8."],
@@ -1361,7 +1361,7 @@ def build_teknisk():
         ["has_split_children", "Aktiviteten er opdelt i to børneaktiviteter."],
     ])
 
-    heading(doc, "Segmentrettelse ('Ret linje' / 'Tilpas')", 2, "8.5")
+    heading(doc, "Segmentrettelse ('Ret til andet arbejde' / 'Tilpas')", 2, "8.5")
     body(doc, (
         "To separate endepunkter lader en bruger justere de enkelte tachografsegmenter "
         "(segments-feltet) på en aktivitet, uafhængigt af hele aktivitetens start-/sluttid."
@@ -2518,10 +2518,10 @@ def build_bruger():
     ), space_after=4)
 
     p3b = doc.add_paragraph()
-    r3b = p3b.add_run("Ret linje / Tilpas (i den detaljerede tidslinje)")
+    r3b = p3b.add_run("Ret til andet arbejde / Tilpas (i den detaljerede tidslinje)")
     r3b.bold = True; r3b.font.name = "Arial"; r3b.font.size = Pt(11)
     body(doc, (
-        "Ud for et pausesegment (hvil) i den detaljerede tidslinje kan du klikke 'Ret linje' for "
+        "Ud for et pausesegment (hvil) i den detaljerede tidslinje kan du klikke 'Ret til andet arbejde' for "
         "at omklassificere det til 'Andet arbejde' – bruges fx hvis tachografen har registreret "
         "en pause der reelt var arbejde. En 'Gendan'-knap kan fortryde præcis den rettelse igen. "
         "'Tilpas' åbner i stedet en dialog hvor du kan justere pausens sluttidspunkt (forlænge "

@@ -1454,7 +1454,7 @@ function renderSegmentTable(a) {
     let retBtns = "";
     if (name === "rest" && !isCorrected) {
       retBtns = `<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start">
-        <button class="seg-correct-btn" data-idx="${idx}" data-id="${a.id}" style="font-size:11px;padding:2px 7px;cursor:pointer" title="Ret til 'Andet arbejde'">Ret linje</button>
+        <button class="seg-correct-btn" data-idx="${idx}" data-id="${a.id}" style="font-size:11px;padding:2px 7px;cursor:pointer" title="Ret til 'Andet arbejde'">Ret til andet arbejde</button>
         <button class="seg-resize-btn" data-idx="${idx}" data-id="${a.id}" style="font-size:11px;padding:2px 7px;cursor:pointer" title="Tilpas pauselængde">Tilpas</button>
       </div>`;
     } else if (isCorrected) {
