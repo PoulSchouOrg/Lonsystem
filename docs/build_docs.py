@@ -375,7 +375,7 @@ def build_teknisk():
             ["pay_period_id",         "FK → PayPeriod", "Tilknyttet lønperiode"],
             ["trip_number",           "String (opt.)",  "Turnummer (max 6 tegn) – der er intet felt til det i brugerfladen pt."],
             ["source",                "Enum",           "tachograph (DDD-import) / manual (manuelt oprettet) / vagtplan"],
-            ["activity_type",         "String(50)",     "normal / ferie / fri / afspadsering / skole/kursus / overnatning / dob_overnatning (se afsnit 7.7) / sygdom(_u_8uger) / barn_1sygedag(_u_8uger) / barsel(_u_loen) / §56 syg / graviditetsbetinget sygdom / selvbetalt fridag / løn andet sted fra (2026-09-22, se afsnit 7.9) – de '_u_...'/'_u_loen'-varianter sættes automatisk af anciennitetsreglerne i afsnit 8.7, ikke valgt direkte af brugeren"],
+            ["activity_type",         "String(50)",     "normal / ferie / fri / afspadsering / skole/kursus / overnatning / dob_overnatning (se afsnit 7.7) / sygdom(_u_8uger) / barn_1sygedag(_u_8uger) / barsel(_u_loen) / §56 syg / graviditetsbetinget sygdom / selvbetalt fridag / løn andet sted fra (2026-09-22, se afsnit 7.9) / eksport (2026-09-30, som løn andet sted fra) – de '_u_...'/'_u_loen'-varianter sættes automatisk af anciennitetsreglerne i afsnit 8.7, ikke valgt direkte af brugeren"],
             ["start_time / end_time", "DateTime",       "Start- og sluttidspunkt"],
             ["availability_time_pct", "Decimal",        "Rådighedstid i % (fra tachograf)"],
             ["rest_pause_pct",        "Decimal",        "Hvil/pause i % (fra tachograf)"],
@@ -1397,6 +1397,11 @@ def build_teknisk():
         "given dag bevidst er uden data i dette system (fx fordi medarbejderen har kørt for et "
         "andet selskab/eksport den dag) – ikke som en fraværstype der skal udløse betaling her."
     ))
+    body(doc, (
+        "Fraværstypen 'Eksport' (2026-09-30, normaliseret nøgle eksport) har præcis samme "
+        "egenskaber: seedet af _ensure_eksport_absence_type() (session.py), 0 kr., ingen CSV-linje, "
+        "og i opret-modalen (app.js) behandles den som Ferie/Selvbetalt fridag (dato-mode og periode)."
+    ))
 
     heading(doc, "Selvbetalt fridag som periode", 2, "7.10")
     body(doc, (
@@ -2129,7 +2134,7 @@ def build_teknisk():
         "TEKNISK NOTE"
     )
     body(doc, (
-        "Selvbetalt fridag, Løn andet sted fra (afsnit 7.9), Barn 2-3.sygedag, Barsel u. løn og "
+        "Selvbetalt fridag, Løn andet sted fra (afsnit 7.9), Eksport, Barn 2-3.sygedag, Barsel u. løn og "
         "typen 'Fri' har ingen etableret betalingsregel i systemet (samme som i den almindelige "
         "Danløn CSV) og har derfor hverken beløb i dagsrækken eller egen linje i topsummeringen."
     ))
@@ -2882,7 +2887,7 @@ def build_bruger():
     bullet(doc, "Felterne for pålæsning, aflæsning, km og pauser skjules (ikke relevante).")
     bullet(doc, "Aktiviteten godkendes automatisk (approved_by sættes til din bruger) – kræver ikke separat godkendelse bagefter.")
     bullet(doc, "Ferie, sygdom, feriefri m.fl.: starttidspunktet sættes automatisk til 06:00, og sluttidspunktet beregnes ud fra medarbejderens normaltimer den pågældende dag. Vælger du 'Til dato' for at oprette en periode, oprettes én aktivitet PR. HVERDAG i perioden (ikke én sammenhængende aktivitet) – hver dag tæller sine egne normaltimer (typisk 7,4 t).")
-    bullet(doc, "Selvbetalt fridag og Løn andet sted fra kan siden 2026-09-22 også oprettes som en periode ('Til dato' udfyldt), på nøjagtig samme måde som Ferie – én aktivitet pr. hverdag i intervallet.")
+    bullet(doc, "Selvbetalt fridag, Løn andet sted fra og Eksport kan siden 2026-09-22 også oprettes som en periode ('Til dato' udfyldt), på nøjagtig samme måde som Ferie – én aktivitet pr. hverdag i intervallet.")
     bullet(doc, "Afspadsering som periode ('Til dato' udfyldt) følger samme regel: 7,4 t (eller medarbejderens skemalagte timer) pr. hverdag, uanset klokketid. En enkelt afspadseringsdag (uden 'Til dato') kan derimod redigeres til en delvis dag med selvvalgt start-/sluttid, og den faktiske varighed bruges da i lønberegningen. Standardtiderne (06:00 + skemalagte timer) sættes kun, når datoen vælges eller ændres – en manuelt rettet start- eller sluttid bevares (rettet 2026-09-30: før sprang starttiden tilbage til 06:00, så snart den blev ændret).")
     bullet(doc, "En eksisterende afspadsering (også en dag fra en periode, da hver dag er sin egen aktivitet) kan rettes i aktivitetsvinduet via 'Ret starttid'/'Ret sluttid' → 'Gem ændringer'. Den nye varighed bruges i lønberegningen, og ændringen gælder kun den ene dag. Kræver 'Redigér aktiviteter' og en ikke-låst lønperiode.")
 
@@ -2897,6 +2902,7 @@ def build_bruger():
             ["Afspadsering",   "Registrerer afspadsering. Som periode ('Til dato') tæller hver hverdag 7,4 t/skemalagte timer; som enkeltdag bruges den faktiske start-/sluttid, som kan rettes både ved oprettelse og bagefter i aktivitetsvinduet."],
             ["Fri",            "Registrerer fridag."],
             ["Løn andet sted fra", "Tilføjet 2026-09-22. Fungerer som Selvbetalt fridag (0 kr., ingen linje i Danløn CSV) – bruges som en kommentar til lønbogholderne om, at dagen bevidst er korrekt uden data i dette system, fx fordi medarbejderen har kørt eksport/for et andet selskab den dag."],
+            ["Eksport", "Tilføjet 2026-09-30. Har præcis samme egenskaber som Løn andet sted fra (0 kr., ingen linje i Danløn CSV, kan oprettes som periode)."],
             ["Skole/kursus",   "Registrerer skole- eller kursusdag."],
             ["Overnatning",    "Registrerer en overnatning (flat sats pr. forekomst – ikke timer). Angiv datoen, eller udfyld 'Til dato' for at registrere flere overnatninger i træk (se note nedenfor). Satsen hentes automatisk fra Stamdata (Tillæg-fanen)."],
             ["Overnatning – DOB",   "Krydses af INDE I Overnatning-oprettelsen (samme modal, ekstra 'DOB'-flueben) – registreres som en separat overnatningstype med sin egen sats i Stamdata → Tillæg. Vises som egen linje i PDF-timesedlen og prøvekørslens Excel-ark. Kommer med i Danløn CSV'en, når der findes en løntypekode for DOB-overnatning i Stamdata → Løntypekoder (fx kode 43) – systemet opretter den ikke selv."],

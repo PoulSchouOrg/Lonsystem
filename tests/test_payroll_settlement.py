@@ -276,6 +276,25 @@ def test_employee_settlement_data_does_not_show_hours_for_loen_andet_sted_fra(db
     assert day["total_kr"] == 0
 
 
+def test_employee_settlement_data_does_not_show_hours_for_eksport(db, employee):
+    """'Eksport' opfører sig præcis som 'Løn andet sted fra' – 0 kr."""
+    from datetime import datetime
+    from database.models import ActivityStatus
+    from calculators.pay_period import get_or_create_period_for_date
+    from routers.payroll_settlement_router import _employee_settlement_data
+    from conftest import make_activity
+    _setup_rates(db, employee, hourly=Decimal("150.00"))
+    period = get_or_create_period_for_date(date(2026, 1, 1), db)
+    make_activity(db, employee, datetime(2026, 1, 5, 6, 0), datetime(2026, 1, 5, 14, 0),
+                  activity_type="eksport", status=ActivityStatus.approved)
+
+    data = _employee_settlement_data(employee, period.start_date, period.end_date, db)
+
+    day = _find_day(data, "2026-01-05")
+    assert day["absence_type"] == "Eksport"
+    assert day["total_hours"] == 0
+    assert day["total_kr"] == 0
+
 def test_employee_settlement_data_absence_kr_counts_toward_employee_total(db, employee):
     """Bekræftet beslutning 2026-08-25: fraværsbeløb (her sygdom) tæller nu MED
     i medarbejderens 'Total løn', oveni den almindelige arbejdstid."""

@@ -81,6 +81,7 @@ def init_db():
     _ensure_springer_pay_type()
     _ensure_feriefri_fuldloennet_pay_type()
     _ensure_loen_andet_sted_fra_absence_type()
+    _ensure_eksport_absence_type()
     _migrate_dispatcher_groups()
     _migrate_dispatcher_group_to_single()
 
@@ -623,6 +624,29 @@ def _ensure_loen_andet_sted_fra_absence_type():
     except Exception as e:
         db.rollback()
         logging.error(f"Fejl ved seeding af fraværstypen 'Løn andet sted fra': {e}")
+    finally:
+        db.close()
+
+
+def _ensure_eksport_absence_type():
+    """Seeder fraværstypen 'Eksport' til eksisterende databaser (idempotent) –
+    opfører sig præcis som 'Løn andet sted fra' (0 kr., ingen CSV-linje)."""
+    from database.models import MasterAbsenceType
+    db = SessionLocal()
+    try:
+        if not db.query(MasterAbsenceType).filter(
+            MasterAbsenceType.normalized_key == "eksport"
+        ).first():
+            max_order = db.query(MasterAbsenceType).count()
+            db.add(MasterAbsenceType(
+                label="Eksport", normalized_key="eksport",
+                is_active=True, is_user_created=False,
+                sort_order=max_order + 1,
+            ))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Fejl ved seeding af fraværstypen 'Eksport': {e}")
     finally:
         db.close()
 

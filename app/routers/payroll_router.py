@@ -354,6 +354,7 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
         "paragraf_56_syg":         "§56 syg",
         "selvbetalt_fridag":       "Selvbetalt fridag",
         "loen_andet_sted_fra":     "Løn andet sted fra",
+        "eksport":                 "Eksport",
         "feriefri":                "Feriefri",
         "barsel":                        "Barsel",
         "barsel_u_loen":                 "Barsel u. løn",
@@ -578,7 +579,7 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
                         # Ulønnet – vises med timer i Lønafregning, men altid 0 kr.
                         absence_hours = Decimal(str((act.end_time - act.start_time).total_seconds())) / 3600
                         absence_kr = Decimal("0")
-                    # barn_2_3sygedag / selvbetalt_fridag / barsel_u_loen / loen_andet_sted_fra: ikke i CSV
+                    # barn_2_3sygedag / selvbetalt_fridag / barsel_u_loen / loen_andet_sted_fra / eksport: ikke i CSV
                     days.append({
                         "date": cur.isoformat(),
                         "normal": 0.0, "ot_before": 0.0, "ot_13": 0.0,
