@@ -13,7 +13,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from auth import get_current_user, log_action, require_permission, user_has_permission
 from calculators.baseline_updater import update_baseline_from_activity, is_auto_approval_enabled
 from calculators.dagsplan_helpers import effective_vehicle_for_employee
-from calculators.pay_period import get_billing_period, get_or_create_period_for_date, is_even_week
+from calculators.pay_period import get_or_create_period_for_date, is_even_week
 from calculators.vehicle_uses import clipped_vehicle_uses, has_multiple_vehicles
 from database.models import Activity, ActivitySource, ActivityStatus, AppUser, Employee, EmployeeSpringerFlag, PayPeriod, PayPeriodStatus, Vehicle
 from database.schemas import (
@@ -301,7 +301,41 @@ def _to_response(a: Activity) -> ActivityResponse:
         is_likely_incomplete=bool(a.is_likely_incomplete),
         hidden_from_vagtplan=bool(a.hidden_from_vagtplan),
         absence_group_id=a.absence_group_id,
+        period_closed=bool(a.pay_period and a.pay_period.status == PayPeriodStatus.closed),
     )
+
+
+def _forbid_change_in_closed_period(a: Activity, action: str) -> None:
+    """Aktiviteter og fravær i en låst (afsluttet) lønperiode må ikke ændres –
+    hverken fra Aktivitetsoversigten eller Vagtplanen."""
+    if a.pay_period and a.pay_period.status == PayPeriodStatus.closed:
+        raise HTTPException(
+            400,
+            f"Kan ikke {action} d. {a.start_time.strftime('%d-%m-%Y')} – lønperioden er låst",
+        )
+
+
+def _forbid_date_in_closed_period(d: date, db: Session) -> PayPeriod:
+    """Der må ikke oprettes (eller flyttes) aktiviteter/fravær ind på en dato i en
+    låst lønperiode. Erstatter den tidligere 'sen registrering' (get_billing_period)
+    for manuel oprettelse – bekræftet af bruger 2026-09-30. Returnerer perioden."""
+    period = get_or_create_period_for_date(d, db)
+    if period.status == PayPeriodStatus.closed:
+        raise HTTPException(
+            400,
+            f"Kan ikke registrere på d. {d.strftime('%d-%m-%Y')} – lønperioden er låst",
+        )
+    return period
+
+
+def _forbid_absence_removal_in_closed_period(a: Activity) -> None:
+    """Fravær i en låst (afsluttet) lønperiode må hverken slettes eller deaktiveres –
+    hverken fra Aktivitetsoversigten eller Vagtplanen."""
+    if a.activity_type != "normal" and a.pay_period and a.pay_period.status == PayPeriodStatus.closed:
+        raise HTTPException(
+            400,
+            f"Kan ikke fjerne fravær d. {a.start_time.strftime('%d-%m-%Y')} – lønperioden er låst",
+        )
 
 
 @router.get("", response_model=list[ActivityResponse])
@@ -529,7 +563,7 @@ def create_manual_activity(body: ActivityCreate,
         if vehicle:
             vehicle_number = vehicle.vehicle_number
 
-    period = get_billing_period(body.start_time.date(), db)
+    period = _forbid_date_in_closed_period(body.start_time.date(), db)
     is_absence = activity_type != "normal"
     can_auto_approve = user_has_permission(db, current_user, "auto_approve_manual_activities")
     activity = Activity(
@@ -569,6 +603,27 @@ def create_manual_activity(body: ActivityCreate,
     db.commit()
     db.refresh(activity)
     return _to_response(activity)
+
+
+@router.get("/locked-dates", response_model=list[date])
+def locked_dates(date_from: date, date_to: date,
+                 current_user: AppUser = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """Datoer i [date_from, date_to] der ligger i en låst lønperiode. Bruges af
+    frontend til at afvise en oprettelse over flere dage FØR noget oprettes."""
+    if date_to < date_from or (date_to - date_from).days > 366:
+        raise HTTPException(400, "Ugyldigt datointerval")
+    closed = (
+        db.query(PayPeriod)
+        .filter(
+            PayPeriod.status == PayPeriodStatus.closed,
+            PayPeriod.start_date <= date_to,
+            PayPeriod.end_date >= date_from,
+        )
+        .all()
+    )
+    return [d for d in _all_dates(date_from, date_to)
+            if any(p.start_date <= d <= p.end_date for p in closed)]
 
 
 @router.get("/absence-group/{group_id}", response_model=list[ActivityResponse])
@@ -631,6 +686,8 @@ def update_absence_group_dates(group_id: str, body: AbsenceGroupDatesUpdate,
                 400,
                 f"Kan ikke fjerne {d.strftime('%d-%m-%Y')} – aktiviteten er splittet, fortryd splittet først",
             )
+    for d in to_add_dates:
+        _forbid_date_in_closed_period(d, db)
 
     # Trin 2: fjern
     for d in to_remove_dates:
@@ -652,7 +709,7 @@ def update_absence_group_dates(group_id: str, body: AbsenceGroupDatesUpdate,
                 continue
             start_dt = datetime.combine(d, time(6, 0))
             end_dt = start_dt + timedelta(minutes=round(hours * 60))
-        period = get_billing_period(d, db)
+        period = get_or_create_period_for_date(d, db)
         db.add(Activity(
             employee_id=template.employee_id,
             pay_period_id=period.id,
@@ -706,6 +763,7 @@ def update_activity(activity_id: int, body: ActivityUpdate,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _forbid_change_in_closed_period(a, "gemme ændringer på aktiviteten")
     if body.activity_type and body.activity_type in _BACKEND_ONLY_TYPES:
         raise HTTPException(400, "Denne aktivitetstype tildeles automatisk og kan ikke angives manuelt")
     # En vagt kørt i flere biler (fra .ddd) viser kun bil-listen – vognnummeret
@@ -750,9 +808,9 @@ def update_activity(activity_id: int, body: ActivityUpdate,
                 raise
             except (ValueError, IndexError):
                 pass
-    # Update pay period if start_time changed
+    # Update pay period if start_time changed – må ikke flyttes ind i en låst periode
     if body.start_time:
-        period = get_billing_period(body.start_time.date(), db)
+        period = _forbid_date_in_closed_period(body.start_time.date(), db)
         a.pay_period_id = period.id
     log_action(db, current_user, "update_activity", "activity", a.id)
     db.commit()
@@ -768,6 +826,7 @@ def undo_edit(activity_id: int,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _forbid_change_in_closed_period(a, "fortryde tidsændringen")
     if a.original_start_time is None:
         raise HTTPException(400, "Ingen tidsændringer at fortryde")
     a.start_time = a.original_start_time
@@ -798,7 +857,8 @@ def undo_split(activity_id: int,
     )
     if parent is None:
         raise HTTPException(404, "Original aktivitet ikke fundet")
-    children = db.query(Activity).filter(Activity.parent_activity_id == parent.id).all()
+    _forbid_change_in_closed_period(parent, "fortryde split")
+    children =db.query(Activity).filter(Activity.parent_activity_id == parent.id).all()
     if not children:
         raise HTTPException(400, "Aktiviteten er ikke splittet")
     for child in children:
@@ -898,6 +958,7 @@ def deactivate_activity(activity_id: int, body: ActivityDeactivate,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _forbid_absence_removal_in_closed_period(a)
     a.status = ActivityStatus.deactivated
     a.deactivated_by = current_user.initials
     a.approved_at = datetime.utcnow()
@@ -937,6 +998,7 @@ def delete_activity(activity_id: int,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _forbid_absence_removal_in_closed_period(a)
     if a.activity_type == "normal" and a.source != ActivitySource.manual:
         raise HTTPException(400, "Kun manuelt oprettede aktiviteter med normal tid kan slettes helt")
     if a.split_children:
@@ -963,6 +1025,7 @@ def correct_segment(
     )
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _forbid_change_in_closed_period(a, "rette segmentet")
 
     segments = [list(seg) for seg in (a.segments or [])]
     idx = body.segment_index
@@ -1028,6 +1091,7 @@ def correct_all_segments(
     )
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _forbid_change_in_closed_period(a, "rette segmenterne")
 
     new_segments, corrected_count = _correct_all_segments_list(a.segments or [])
     if corrected_count == 0:
@@ -1066,6 +1130,7 @@ def resize_segment(
     )
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _forbid_change_in_closed_period(a, "ændre segmentets længde")
 
     segments = [list(seg) for seg in (a.segments or [])]
     idx = body.segment_index
@@ -1129,6 +1194,9 @@ def reopen_activity(activity_id: int,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    # Hverken aktiviteter eller fravær i en låst lønperiode må genåbnes –
+    # hverken fra Aktivitetsoversigten eller Vagtplanen.
+    _forbid_change_in_closed_period(a, "genåbne aktiviteten")
     a.status = ActivityStatus.pending
     a.approved_by = None
     a.approved_at = None
@@ -1151,6 +1219,7 @@ def split_activity(activity_id: int, body: ActivitySplit,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _forbid_change_in_closed_period(a, "splitte aktiviteten")
     if not (a.start_time < body.split_at < a.end_time):
         raise HTTPException(400, "Splitpunkt skal ligge mellem start- og sluttid")
 

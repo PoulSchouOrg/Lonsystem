@@ -170,6 +170,7 @@ class ActivityResponse(BaseModel):
     is_likely_incomplete: bool = False
     hidden_from_vagtplan: bool = False
     absence_group_id: Optional[str] = None
+    period_closed: bool = False
 
 
 class ActivityCreate(BaseModel):

@@ -1113,12 +1113,18 @@ function renderPctBar(a) {
 function pct(v) { return v ? parseFloat(v) : 0; }
 function fmtPct(v) { return v.toFixed(2); }
 
+// Fravær i en låst lønperiode må hverken slettes eller deaktiveres (håndhæves også i backend).
+function _absenceRemovalLocked(a) {
+  return !!a && a.period_closed && a.activity_type !== "normal";
+}
+
 function renderActionBtns(a) {
   const btns = [];
   if (a.status === "pending") {
     btns.push(`<button class="btn btn-success btn-sm" onclick="quickApprove(${a.id})">✓ Godkend</button>`);
-    btns.push(`<button class="btn btn-danger btn-sm" onclick="quickDeactivate(${a.id})">✗</button>`);
-  } else {
+    if (!_absenceRemovalLocked(a)) btns.push(`<button class="btn btn-danger btn-sm" onclick="quickDeactivate(${a.id})">✗</button>`);
+  } else if (!a.period_closed) {
+    // Aktiviteter og fravær i en låst lønperiode må ikke genåbnes (håndhæves også i backend).
     btns.push(`<button class="btn btn-secondary btn-sm" onclick="quickReopen(${a.id})">↩ Genåbn</button>`);
   }
   return btns.join("");
@@ -1246,7 +1252,7 @@ async function openActivityDetail(id) {
   }
 
   document.getElementById("modal-activity-body").innerHTML = `
-    ${absencePeriod ? `
+    ${absencePeriod && !a.period_closed ? `
     <div class="form-group" id="absence-period-section" style="margin-bottom:14px;padding:10px;background:var(--bg);border-radius:var(--radius)">
       <label style="font-weight:500;font-size:12px;text-transform:uppercase;color:var(--text-light);margin-bottom:6px;display:block">Fraværsperiode</label>
       <div class="form-row" style="margin-bottom:8px">
@@ -1357,12 +1363,12 @@ async function openActivityDetail(id) {
         ${a.pause_intervals.map((p, i) => `
           <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border,#e5e7eb)">
             <span style="flex:1">${formatTime(p[0])} – ${formatTime(p[1])}</span>
-            <button class="act-pause-edit-btn" data-idx="${i}" data-id="${a.id}" style="font-size:11px;padding:2px 7px;cursor:pointer">Ret</button>
-            <button class="act-pause-del-btn" data-idx="${i}" data-id="${a.id}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;line-height:1;padding:0 2px">&times;</button>
+            ${a.period_closed ? "" : `<button class="act-pause-edit-btn" data-idx="${i}" data-id="${a.id}" style="font-size:11px;padding:2px 7px;cursor:pointer">Ret</button>
+            <button class="act-pause-del-btn" data-idx="${i}" data-id="${a.id}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;line-height:1;padding:0 2px">&times;</button>`}
           </div>
         `).join("")}
       </div>` : ""}
-      ${a.status === "pending" ? `
+      ${a.status === "pending" && !a.period_closed ? `
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
         <button type="button" class="btn btn-secondary act-pause-add-btn" data-id="${a.id}" style="font-size:13px;padding:5px 14px">+ Tilføj pause</button>
         <button type="button" class="btn btn-secondary act-pause-suggest-btn" data-id="${a.id}" data-start="12:00" data-end="12:30" style="font-size:13px;padding:5px 14px">12:00–12:30</button>
@@ -1395,21 +1401,24 @@ async function openActivityDetail(id) {
 
   const footer = document.getElementById("modal-activity-footer");
   footer.innerHTML = "";
+  // Låst lønperiode: ingen ændringer overhovedet – kun Godkend (for evt. afventende)
+  // og Luk vises. Håndhæves også i backend.
+  const locked = a.period_closed;
   // Fortryd-knapper
-  if (a.is_edited) {
+  if (!locked && a.is_edited) {
     footer.innerHTML += `<button class="btn btn-warning" onclick="undoEdit()" title="Gendan de oprindelige tider">↩ Fortryd tidsændring</button>`;
   }
-  if (a.has_split_children || a.parent_activity_id) {
+  if (!locked && (a.has_split_children || a.parent_activity_id)) {
     footer.innerHTML += `<button class="btn btn-warning" onclick="undoSplit()" title="Slet delene og gendan den originale aktivitet">↩ Fortryd split</button>`;
   }
-  footer.innerHTML += `<button class="btn btn-secondary" onclick="saveActivityTimes()">💾 Gem ændringer</button>`;
+  if (!locked) footer.innerHTML += `<button class="btn btn-secondary" onclick="saveActivityTimes()">💾 Gem ændringer</button>`;
   if (a.status === "pending") {
-    footer.innerHTML += `<button class="btn btn-warning" onclick="openSplitModal()">✂️ Split</button>`;
-    footer.innerHTML += `<button class="btn btn-danger" onclick="modalDeactivate()">✗ Deaktiver</button>`;
+    if (!locked) footer.innerHTML += `<button class="btn btn-warning" onclick="openSplitModal()">✂️ Split</button>`;
+    if (!_absenceRemovalLocked(a)) footer.innerHTML += `<button class="btn btn-danger" onclick="modalDeactivate()">✗ Deaktiver</button>`;
     footer.innerHTML += `<button class="btn btn-success" onclick="openApproveModal()">✓ Godkend</button>`;
   } else {
-    if (a.status === "deactivated") footer.innerHTML += `<button class="btn btn-warning" onclick="openSplitModal()">✂️ Split</button>`;
-    footer.innerHTML += `<button class="btn btn-secondary" onclick="modalReopen()">↩ Genåbn</button>`;
+    if (!locked && a.status === "deactivated") footer.innerHTML += `<button class="btn btn-warning" onclick="openSplitModal()">✂️ Split</button>`;
+    if (!locked) footer.innerHTML += `<button class="btn btn-secondary" onclick="modalReopen()">↩ Genåbn</button>`;
   }
   footer.innerHTML += `<button class="btn btn-secondary" onclick="closeModal('modal-activity')">Luk</button>`;
 
@@ -1452,18 +1461,22 @@ const SEGMENT_ICONS = {
 
 function renderSegmentTable(a) {
   if (!a.segments || a.segments.length === 0) return "";
-  const hasCorrectable = a.segments.some(seg => seg[2] === "rest" && seg.length < 4);
+  // Låst lønperiode: ingen ret/tilpas/gendan/split-knapper (håndhæves også i backend).
+  const locked = a.period_closed;
+  const hasCorrectable = !locked && a.segments.some(seg => seg[2] === "rest" && seg.length < 4);
   // Saksen vises ikke på første linje (split ved aktivitetens start giver ingen mening)
   const rows = a.segments.map((seg, idx) => {
     const [s, e, name, correctedFrom] = seg;
     const mins = Math.round((new Date(e) - new Date(s)) / 60000);
     const h = Math.floor(mins / 60), m = mins % 60;
-    const canSplit = idx > 0;
+    const canSplit = idx > 0 && !locked;
     const isCorrected = correctedFrom !== undefined;
     const rowBg = name === "rest" ? `style="background:#d4edcc;"` : "";
     const tilrettet = isCorrected ? "Ja" : (a.is_edited ? "Ja" : "Nej");
     let retBtns = "";
-    if (name === "rest" && !isCorrected) {
+    if (locked) {
+      retBtns = "";
+    } else if (name === "rest" && !isCorrected) {
       retBtns = `<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start">
         <button class="seg-correct-btn" data-idx="${idx}" data-id="${a.id}" style="font-size:11px;padding:2px 7px;cursor:pointer" title="Ret til 'Andet arbejde'">Ret til andet arbejde</button>
         <button class="seg-resize-btn" data-idx="${idx}" data-id="${a.id}" style="font-size:11px;padding:2px 7px;cursor:pointer" title="Tilpas pauselængde">Tilpas</button>
@@ -1811,7 +1824,8 @@ async function confirmApprove() {
     const kmEndVal   = document.getElementById("edit-km-end")?.value;
     const saltVal    = document.getElementById("edit-salt")?.checked ?? false;
     const dobCb      = document.getElementById("edit-dob");
-    if (vehicleNum !== undefined) {
+    // I en låst lønperiode kan aktiviteten ikke rettes – spring gem-trinnet over.
+    if (vehicleNum !== undefined && !a?.period_closed) {
       const patchBody = {
         vehicle_number: vehicleNum || null,
         km_start: kmStartVal !== "" && kmStartVal != null ? parseInt(kmStartVal) : null,
@@ -1838,6 +1852,7 @@ function openDeactivateModal() {
   document.getElementById("deactivate-comment").value = "";
   document.getElementById("deactivate-hide-vagtplan").checked = false;
   const a = _findLoadedActivity(state.selectedActivityId);
+  if (_absenceRemovalLocked(a)) { toast("Fravær i en låst lønperiode kan ikke fjernes", "error"); return; }
   const canDeleteEntirely = a && (a.activity_type !== "normal" || a.is_manual);
   document.getElementById("deactivate-hide-vagtplan-group").style.display = canDeleteEntirely ? "" : "none";
   if (canDeleteEntirely) {
@@ -2650,7 +2665,9 @@ document.addEventListener("click", (e) => {
   }
 });
 
-function openManualActivityModal(empId = null, dateIso = null, opts = {}) {
+async function openManualActivityModal(empId = null, dateIso = null, opts = {}) {
+  // Klik på en dato i en låst lønperiode: advar FØR modalen åbnes (tjekkes igen ved gem).
+  if (dateIso && await _rejectIfLockedDates([dateIso])) return;
   _manualActivityContext = { vagtplan: !!opts.vagtplan };
   document.getElementById("manual-employee").innerHTML =
     state.employees.filter(e => e.active)
@@ -2828,6 +2845,22 @@ function _resolveParagraf56SygdomChoice(choice) {
   }
 }
 
+// Afviser oprettelse hvis en af datoerne ligger i en låst lønperiode (håndhæves også i
+// backend). Tjekkes FØR noget oprettes, så en periode over flere dage ikke oprettes halvt.
+async function _rejectIfLockedDates(dates) {
+  if (!dates.length) return false;
+  const sorted = dates.slice().sort();
+  let locked;
+  try {
+    locked = await GET(`/api/activities/locked-dates?date_from=${sorted[0]}&date_to=${sorted[sorted.length - 1]}`);
+  } catch (e) { toast(e.message, "error"); return true; }
+  const hits = sorted.filter(d => locked.includes(d));
+  if (!hits.length) return false;
+  const fmt = d => { const [y, m, day] = d.split("-"); return `${day}-${m}-${y}`; };
+  toast(`Kan ikke oprette – lønperioden er låst for: ${hits.map(fmt).join(", ")}`, "error");
+  return true;
+}
+
 async function confirmManualActivity() {
   if (document.getElementById("manual-type").value === "sygdom") {
     const empForCheck = state.employees.find(e => e.id === parseInt(document.getElementById("manual-employee").value));
@@ -2864,6 +2897,7 @@ async function confirmManualActivity() {
 
     if (!tilDato) {
       // ── Enkeltdag: uændret adfærd ────────────────────────────────────────
+      if (await _rejectIfLockedDates([fra])) return;
       const timeStr = fra + "T00:00:00";
       try {
         await POST("/api/activities", {
@@ -2883,6 +2917,7 @@ async function confirmManualActivity() {
     // ── Periode: én aktivitet pr. kalenderdag ────────────────────────────
     if (tilDato < fra) { toast("Til dato skal være på eller efter fra dato", "error"); return; }
     const dates = getAllDates(fra, tilDato);
+    if (await _rejectIfLockedDates(dates)) return;
 
     const allOverlaps = [];
     for (const iso of dates) {
@@ -2935,6 +2970,7 @@ async function confirmManualActivity() {
     return;
   }
   if (!isRange && new Date(end) <= new Date(start)) { toast("Sluttid skal være efter starttid", "error"); return; }
+  if (!isRange && await _rejectIfLockedDates([start.slice(0, 10)])) return;
 
   const terminsdato = document.getElementById("manual-terminsdato").value || null;
   if (actType === "barsel" && !terminsdato) {
@@ -2989,6 +3025,7 @@ async function confirmManualActivity() {
     if (tilDato < fra) { toast("Til dato skal være på eller efter fra dato", "error"); return; }
     const dates = getWeekdayDates(fra, tilDato);
     if (dates.length === 0) { toast("Ingen hverdage i den valgte periode", "error"); return; }
+    if (await _rejectIfLockedDates(dates)) return;
 
     // Overlapscheck for alle dage i perioden
     const allOverlaps = [];
