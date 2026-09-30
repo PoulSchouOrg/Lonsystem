@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from calculators.rates_loader import load_overtime_rates
+from calculators.vehicle_uses import split_by_vehicle
 
 OT_BEFORE_KEY = "Overtid 1 time før"
 OT_13_KEY = "Overtid 1-3 timer efter"
@@ -51,6 +52,10 @@ class OvertimeResult:
     # Bruges af Lønafregning til at vise timerne på de rigtige dage (bekræftet
     # af bruger 2026-09-09) uden at ændre selve tærskel-beregningen.
     by_date: dict = field(default_factory=dict)
+    # Som by_date, men nøglet (dato, registreringsnummer) – kun udfyldt når
+    # vagten er kørt i flere biler (vehicle_intervals angivet). Bruges af
+    # Lønafregning til én linje pr. bil pr. dag (bekræftet af bruger 2026-09-30).
+    by_date_vehicle: dict = field(default_factory=dict)
 
     def supplement_total(self) -> Decimal:
         return sum(self.supplements.values(), Decimal("0"))
@@ -66,6 +71,46 @@ def _window(dt: datetime) -> str:
     if 18 <= h < 21:
         return "evening"     # 18-21
     return "night"           # 21-05
+
+
+def _new_bucket() -> dict:
+    return {
+        "normal": Decimal("0"), "ot_before": Decimal("0"),
+        "ot_13": Decimal("0"), "ot_extra": Decimal("0"),
+        "total_hours": Decimal("0"),
+        "sh_kode8": Decimal("0"), "sh_kode9": Decimal("0"),
+    }
+
+
+def _allocate_to_vehicles(result, seg_start, seg_end, duration, parts, vehicle_intervals) -> None:
+    """Fordeler ét allerede beregnet segment på bilerne i by_date_vehicle.
+
+    Selve beregningen (totaler, loft, by_date) sker på de uændrede
+    time-segmenter, så en opdeling pr. bil aldrig ændrer lønnen – heller ikke
+    med en Decimal-afrundingsforskel. Segmentets timer (`parts`, i kronologisk
+    prioritet: normaltid før OT 1-3 før Øvrig) tildeles bilerne i den
+    rækkefølge de er kørt, så den bil der køres først også forbruger loftet
+    først."""
+    pieces = list(split_by_vehicle([(seg_start, seg_end)], vehicle_intervals))
+    sub_durations = [Decimal(str((e - s).total_seconds())) / 3600 for s, e, _ in pieces]
+    if sub_durations:
+        sub_durations[-1] = duration - sum(sub_durations[:-1], Decimal("0"))
+    remaining_parts = [[key, amount] for key, amount in parts]
+    for (_, _, reg), sub in zip(pieces, sub_durations):
+        bucket = result.by_date_vehicle.setdefault((seg_start.date(), reg), _new_bucket())
+        bucket["total_hours"] += sub
+        bucket["normal"] += sub
+        left = sub
+        for part in remaining_parts:
+            if left <= 0:
+                break
+            take = min(left, part[1])
+            if take <= 0:
+                continue
+            if part[0]:
+                bucket[part[0]] += take
+            part[1] -= take
+            left -= take
 
 
 def _segments(start: datetime, end: datetime):
@@ -116,6 +161,7 @@ def calculate_overtime(
     normal_remaining: Decimal | None = None,
     ot13_remaining: Decimal | None = None,
     next_day_normal_hours: Decimal | None = None,
+    vehicle_intervals: list[tuple[datetime, datetime, str]] | None = None,
 ) -> OvertimeResult:
     """
     Beregn timefordelingen for én aktivitet (ét skift).
@@ -137,6 +183,9 @@ def calculate_overtime(
     jf. Jesper Rosengreen-sagen). Kun angivet af kaldere med et dagligt loft –
     ved None (fx den ugentlige 37t/5t-pulje for hourly_flexible) bevares det
     oprindelige loft helt uændret over midnat, som hidtil.
+    vehicle_intervals: se calculators/vehicle_uses.py – de beregnede timer
+    fordeles bagefter pr. bil i by_date_vehicle (_allocate_to_vehicles);
+    selve beregningen er uændret.
     """
     result = OvertimeResult()
     if rates is None:
@@ -174,16 +223,21 @@ def calculate_overtime(
         result.normal_hours += duration
         day_bucket["normal"] += duration
 
+        # Segmentets timer i kronologisk prioritet (til fordeling pr. bil):
+        # (tillægsnøgle eller None, timer).
+        parts: list = []
         if window == "night":
             # 21-05: Øvrigt overtid-tillæg. Registreret normaltid kan kun
             # forbruges i tidsrummet 06-18, så nattetimer fortærer ikke loftet.
             result.ot_extra_hours += duration
             day_bucket["ot_extra"] += duration
+            parts = [("ot_extra", duration)]
         elif window == "before":
             # 05-06: "Overtid 1 time før" regnes separat og fortærer ikke
             # normaltids-loftet (bekræftet af bruger 2026-07-02).
             result.ot_before_hours += duration
             day_bucket["ot_before"] += duration
+            parts = [("ot_before", duration)]
         elif window == "evening":
             # 18-21: OT 1-3-tillæg (op til 3 timer), derefter Øvrig-tillæg.
             # Ligger uden for 06-18, så det fortærer heller ikke normaltids-loftet.
@@ -192,23 +246,31 @@ def calculate_overtime(
             day_bucket["ot_13"] += in_13
             ot13_remaining -= in_13
             overflow = duration - in_13
+            parts = [("ot_13", in_13)]
             if overflow > 0:
                 result.ot_extra_hours += overflow
                 day_bucket["ot_extra"] += overflow
+                parts.append(("ot_extra", overflow))
         else:
             # 06-18: forbruger normaltid; overtid ud over kap → supplement-tillæg
             as_normal = min(duration, normal_remaining)
             normal_remaining -= as_normal
             rest = duration - as_normal
+            parts = [(None, as_normal)]
             if rest > 0:
                 in_13 = min(rest, ot13_remaining)
                 result.ot_13_hours += in_13
                 day_bucket["ot_13"] += in_13
                 ot13_remaining -= in_13
                 overflow = rest - in_13
+                parts.append(("ot_13", in_13))
                 if overflow > 0:
                     result.ot_extra_hours += overflow
                     day_bucket["ot_extra"] += overflow
+                    parts.append(("ot_extra", overflow))
+
+        if vehicle_intervals:
+            _allocate_to_vehicles(result, seg_start, seg_end, duration, parts, vehicle_intervals)
 
     result.supplements = {
         OT_BEFORE_KEY: result.ot_before_hours * rates.get(OT_BEFORE_KEY, Decimal("0")),
@@ -224,6 +286,7 @@ def calculate_flat_hours(
     start: datetime,
     end: datetime,
     pause_intervals: list[tuple[datetime, datetime]] | None = None,
+    vehicle_intervals: list[tuple[datetime, datetime, str]] | None = None,
 ) -> OvertimeResult:
     """
     Bruges til medarbejdere med en Aftale-type uden for de to kendte nøgler
@@ -245,6 +308,8 @@ def calculate_flat_hours(
         })
         day_bucket["total_hours"] += duration
         day_bucket["normal"] += duration
+        if vehicle_intervals:
+            _allocate_to_vehicles(result, seg_start, seg_end, duration, [(None, duration)], vehicle_intervals)
     return result
 
 
@@ -269,9 +334,16 @@ def override_ot_extra_alle_timer(
     if is_special_day:
         result.sh_kode8_hours = Decimal("0")
         result.sh_kode9_hours = result.total_hours
+        for bucket in result.by_date_vehicle.values():
+            bucket["sh_kode8"] = Decimal("0")
+            bucket["sh_kode9"] = bucket["total_hours"]
     else:
         result.ot_extra_hours = result.total_hours
         result.supplements = {OT_EXTRA_KEY: result.ot_extra_hours * rates.get(OT_EXTRA_KEY, Decimal("0"))}
         for bucket in result.by_date.values():
+            bucket["ot_extra"] = bucket["total_hours"]
+        for bucket in result.by_date_vehicle.values():
+            bucket["ot_before"] = Decimal("0")
+            bucket["ot_13"] = Decimal("0")
             bucket["ot_extra"] = bucket["total_hours"]
     return result

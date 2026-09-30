@@ -14,7 +14,8 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any
 
-from calculators.overtime import OT_13_MAX, OvertimeResult, _subtract_pauses
+from calculators.overtime import OT_13_MAX, OvertimeResult, _new_bucket, _subtract_pauses
+from calculators.vehicle_uses import split_by_vehicle
 
 
 class DayType(Enum):
@@ -83,6 +84,7 @@ def calculate_special_day_overtime(
     day_type: DayType,
     pause_intervals: list | None = None,
     kode8_remaining: Decimal | None = None,
+    vehicle_intervals: list | None = None,
 ) -> OvertimeResult:
     """
     Beregn timefordeling for en kørsel på en søndag/helligdag.
@@ -104,6 +106,9 @@ def calculate_special_day_overtime(
     tidligere aktivitet SAMME særlige dag (når dagen er delt i flere godkendte
     aktiviteter) – uden angivelse startes der forfra fra OT_13_MAX (3 timer).
     Videreføres til den næste aktivitet via result.ot13_remaining_after.
+
+    vehicle_intervals: ved flere biler på vagten fordeles samme timer/koder
+    også pr. (dato, bil) i result.by_date_vehicle (se calculators/vehicle_uses.py).
     """
     result = OvertimeResult()
     work_intervals = _subtract_pauses(start, end, pause_intervals or [])
@@ -136,4 +141,31 @@ def calculate_special_day_overtime(
         result.sh_kode9_hours = _hours_after_noon(work_intervals, noon)
 
     result.ot13_remaining_after = remaining8
+    if vehicle_intervals:
+        _fill_special_day_by_vehicle(
+            result, work_intervals, day_type, vehicle_intervals, start,
+            OT_13_MAX if kode8_remaining is None else kode8_remaining,
+        )
     return result
+
+
+def _fill_special_day_by_vehicle(result, work_intervals, day_type, vehicle_intervals, start, remaining8):
+    """Samme regler som ovenfor, men timerne gennemløbes kronologisk og
+    fordeles pr. (dato, bil) – summen pr. kode svarer til totalen."""
+    noon = start.replace(hour=12, minute=0, second=0, microsecond=0)
+    for s, e, reg in split_by_vehicle(work_intervals, vehicle_intervals):
+        bucket = result.by_date_vehicle.setdefault((s.date(), reg), _new_bucket())
+        hours = Decimal(str((e - s).total_seconds())) / Decimal("3600")
+        bucket["total_hours"] += hours
+        bucket["normal"] += hours
+        if day_type in (DayType.SUNDAY, DayType.HOLIDAY_FULL):
+            bucket["sh_kode9"] += hours
+        elif day_type in (DayType.HOLIDAY_HALF_1MAJ, DayType.HOLIDAY_HALF_GRUNDLOV):
+            after_noon = _hours_after_noon([(s, e)], noon)
+            if day_type == DayType.HOLIDAY_HALF_1MAJ:
+                kode8 = min(after_noon, remaining8)
+                remaining8 -= kode8
+                bucket["sh_kode8"] += kode8
+                bucket["sh_kode9"] += after_noon - kode8
+            else:
+                bucket["sh_kode9"] += after_noon

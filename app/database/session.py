@@ -179,6 +179,9 @@ def _migrate():
         if "original_segments" not in act_cols2:
             conn.execute("ALTER TABLE activities ADD COLUMN original_segments TEXT")
             conn.commit()
+        if "vehicle_uses" not in act_cols2:
+            conn.execute("ALTER TABLE activities ADD COLUMN vehicle_uses TEXT")
+            conn.commit()
         existing_indexes = {row[1] for row in conn.execute("PRAGMA index_list(activities)")}
         if "ix_activities_employee_start_source" not in existing_indexes:
             conn.execute(

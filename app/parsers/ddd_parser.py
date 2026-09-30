@@ -73,6 +73,9 @@ class ParsedActivity:
     # Filen ser ud til at være hentet midt i vagten (0 km registreret den dag,
     # og dagen slutter ikke i hvil) – resten af dagen mangler formentlig
     is_likely_incomplete: bool = False
+    # Alle biler vagten er kørt i: (start, slut, registreringsnummer) i dansk
+    # lokal tid, kronologisk. Samme bil kan optræde flere gange (A -> B -> A).
+    vehicle_uses: list[tuple[datetime, datetime, str]] = None
 
 
 def parse_ddd_file(file_path: Path) -> list[ParsedActivity]:
@@ -91,7 +94,10 @@ def parse_ddd_file(file_path: Path) -> list[ParsedActivity]:
     if not daily_records:
         return []
 
-    return _build_activities(card_number, vehicle_records, daily_odometer, daily_records, str(file_path))
+    return _build_activities(
+        card_number, vehicle_records, daily_odometer, daily_records, str(file_path),
+        vehicle_uses=_extract_vehicle_uses(data),
+    )
 
 
 DEFAULT_MAX_FILE_AGE_DAYS = 7
@@ -165,8 +171,13 @@ def _extract_vehicle_usage_records(data: bytes) -> list[tuple[datetime, datetime
     over måneder/år (bekræftet: sådanne "poster" opstår systematisk ved
     fejlallignering, ofte forskudt præcis 31 byte fra en ægte post).
     """
+    return [(first_dt, last_dt, reg) for _, first_dt, last_dt, reg in _scan_vehicle_records(data)]
+
+
+def _scan_vehicle_records(data: bytes):
+    """Fælles byte-scanning for CardVehicleRecords (se
+    _extract_vehicle_usage_records): yielder (pos, first_use, last_use, reg)."""
     RECORD_SIZE = 31
-    records: list[tuple[datetime, datetime, str]] = []
     for pos in range(0, len(data) - RECORD_SIZE + 1):
         first_use = struct.unpack_from(">I", data, pos + 6)[0]
         if not (TS_MIN <= first_use <= TS_MAX):
@@ -184,8 +195,41 @@ def _extract_vehicle_usage_records(data: bytes) -> list[tuple[datetime, datetime
             continue
         if not (re.search(r'[A-Z]', reg) and re.search(r'\d', reg)):
             continue
-        records.append((first_dt, last_dt, reg))
-    return records
+        yield pos, first_dt, last_dt, reg
+
+
+_VIN_RE = re.compile(rb'[A-HJ-NPR-Z0-9]{17}')
+
+
+def _extract_vehicle_uses(data: bytes) -> list[tuple[datetime, datetime, str]]:
+    """
+    Strengere udgave af _extract_vehicle_usage_records til listen over ALLE
+    biler en vagt er kørt i (Activity.vehicle_uses). Hovedbilen
+    (vehicle_registration) slås fortsat op via den gamle funktion, så
+    vagtplan/timeseddel/CSV er uændrede.
+
+    To ekstra filtre, bekræftet ved byte-analyse af de reelle filer 2026-09-30:
+    - codePage-byten skal være gyldig (1-16). En forskudt læsning inde i en
+      ægte post gav ellers et falsk "M23112" midt i DM23112's tidsrum
+      (Eriksen 13-04-2026, codePage-byte = 0x44 'D').
+    - Kortet har to tabeller: Gen1 (31-byte poster) og Gen2 (samme 31 byte
+      efterfulgt af 17-tegns VIN). Gen2-tabellen skrives kun af Gen2-
+      tachografer, så en tur i en ældre bil mangler dér, og bilen før/efter
+      står som ét sammenhængende tidsrum (Nicolaisen 03-07-2026: DL52884
+      04:55-12:19 i Gen2, mens Gen1 har DL52884 / CH78037 / DL52884). Gen1-
+      posterne bruges derfor; en Gen2-post kun på datoer hvor Gen1 intet har
+      (Gen2-tabellen rækker længere tilbage i tid).
+    """
+    gen1: set = set()
+    gen2: set = set()
+    for pos, first_dt, last_dt, reg in _scan_vehicle_records(data):
+        if not (1 <= data[pos + 15] <= 16):
+            continue
+        target = gen2 if _VIN_RE.fullmatch(data[pos + 31: pos + 48]) else gen1
+        target.add((first_dt, last_dt, reg))
+    gen1_dates = {first_dt.date() for first_dt, _, _ in gen1}
+    records = gen1 | {r for r in gen2 if r[0].date() not in gen1_dates}
+    return sorted(records)
 
 
 def _lookup_vehicle_registration(
@@ -202,6 +246,23 @@ def _lookup_vehicle_registration(
             best_overlap = overlap
             best_reg = reg
     return best_reg
+
+
+def _lookup_vehicle_uses(
+    start_dt: datetime, end_dt: datetime, vehicle_uses: list[tuple[datetime, datetime, str]],
+) -> list[tuple[datetime, datetime, str]]:
+    """Alle bilposter (UTC) der overlapper vagtens tidsrum, klippet til vagten
+    og sorteret kronologisk. Samme bil kan optræde flere gange (A -> B -> A).
+    Bilposterne har sekunder; de afrundes ned til hele minutter som vagtens
+    egne tider."""
+    uses = []
+    for rec_start, rec_end, reg in vehicle_uses:
+        rec_start = rec_start.replace(second=0, microsecond=0)
+        rec_end = rec_end.replace(second=0, microsecond=0)
+        s, e = max(start_dt, rec_start), min(end_dt, rec_end)
+        if e > s:
+            uses.append((s, e, reg))
+    return sorted(uses)
 
 
 def _extract_card_number(data: bytes) -> str:
@@ -617,6 +678,7 @@ def _build_activities(
     daily_odometer: dict[int, int],
     daily_records: list[tuple[datetime, int, bytes]],
     source_file: str,
+    vehicle_uses: list[tuple[datetime, datetime, str]] | None = None,
 ) -> list[ParsedActivity]:
     """
     Konverterer dags-records til ParsedActivity-objekter pr. VAGT, ikke pr.
@@ -878,6 +940,10 @@ def _build_activities(
         day_start_ts = int(start_dt.replace(tzinfo=timezone.utc).timestamp())
         km_start = _lookup_daily_km(day_start_ts, daily_odometer)
         vehicle_registration = _lookup_vehicle_registration(start_dt, end_dt, vehicle_records)
+        shift_vehicle_uses = [
+            (_utc_to_local(s), _utc_to_local(e), reg)
+            for s, e, reg in _lookup_vehicle_uses(start_dt, end_dt, vehicle_uses or [])
+        ]
         dates_touched = dates_touched_per_shift[shift_idx]
         km_end = None
         if km_start is not None and len(dates_touched) == 1:
@@ -898,6 +964,7 @@ def _build_activities(
                 driving_pct=pct(mins[ACTIVITY_DRIVING]),
                 source_file=source_file,
                 vehicle_registration=vehicle_registration,
+                vehicle_uses=shift_vehicle_uses,
                 km_start=km_start,
                 km_end=km_end,
                 pause_intervals=pause_intervals,

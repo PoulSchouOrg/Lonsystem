@@ -231,6 +231,13 @@ def _process_import_results(
     }
 
 
+def _vehicle_uses_json(act) -> list | None:
+    """ParsedActivity.vehicle_uses i Activity.vehicle_uses' JSON-format."""
+    if not act.vehicle_uses:
+        return None
+    return [[s.isoformat(), e.isoformat(), reg] for s, e, reg in act.vehicle_uses]
+
+
 def _import_activity(
     act: ParsedActivity, db: Session, employee: Employee | None,
     allow_closed_period: bool = False,
@@ -343,6 +350,13 @@ def _import_activity(
                     existing.vehicle_registration = act.vehicle_registration
                     v = db.query(Vehicle).filter(Vehicle.registration_number == act.vehicle_registration).first()
                     existing.vehicle_number = v.vehicle_number if v else None
+                    changed = True
+                # Listen over alle biler vagten er kørt i følger samme princip:
+                # metadata der rettes ved genimport uanset status (vagter
+                # importeret før 2026-09-30 har ingen liste endnu).
+                new_vehicle_uses = _vehicle_uses_json(act)
+                if new_vehicle_uses and new_vehicle_uses != existing.vehicle_uses:
+                    existing.vehicle_uses = new_vehicle_uses
                     changed = True
 
                 new_segments = [
@@ -554,6 +568,7 @@ def _import_activity(
         driving_pct=act.driving_pct,
         vehicle_registration=act.vehicle_registration,
         vehicle_number=vehicle_number,
+        vehicle_uses=_vehicle_uses_json(act),
         km_start=act.km_start,
         km_end=act.km_end,
         pause_intervals=[

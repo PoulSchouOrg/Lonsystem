@@ -40,6 +40,7 @@ from calculators.day_type import (
     calculate_special_day_overtime,
 )
 from calculators.pay_period import get_or_create_period_for_date, is_even_week
+from calculators.vehicle_uses import clipped_vehicle_uses, vehicle_assignment_intervals
 import logging as _logging
 from calculators.rates_loader import (
     load_agreement_types_from_db,
@@ -53,7 +54,7 @@ from calculators.rates_loader import (
     load_supplement_rates_by_id_from_db,
     get_active_supplement_for_period,
 )
-from database.models import Activity, ActivityStatus, AgreementKind, Employee, EmployeeSpringerFlag, Holiday, MasterCvrNumber, PayPeriod, PayPeriodStatus
+from database.models import Activity, ActivityStatus, AgreementKind, Employee, EmployeeSpringerFlag, Holiday, MasterCvrNumber, PayPeriod, PayPeriodStatus, Vehicle
 from database.session import get_db
 
 router = APIRouter(prefix="/api/payroll", tags=["payroll"])
@@ -225,6 +226,7 @@ class _DayPiece:
     activity_type: str
     salt_supplement: bool
     vehicle_number: Optional[str]
+    vehicle_uses: Optional[list] = None
 
 
 def _split_into_day_pieces(act: Activity) -> list[_DayPiece]:
@@ -266,6 +268,7 @@ def _split_into_day_pieces(act: Activity) -> list[_DayPiece]:
             activity_type=act.activity_type,
             salt_supplement=act.salt_supplement,
             vehicle_number=act.vehicle_number,
+            vehicle_uses=act.vehicle_uses,
         ))
         cur = piece_end
     return pieces
@@ -289,6 +292,18 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
     fraværsdage vises med typenavn (beregning tilføjes senere)."""
     from collections import defaultdict
     from datetime import datetime as _dt
+
+    _vehicle_number_by_reg: dict = {}
+
+    def _vehicle_number_for(reg: str) -> str:
+        # Slås op ved beregningen (ikke ved import), så en bil der oprettes i
+        # Vognpark bagefter straks får sit vognnummer på Lønafregnings-linjen.
+        if not _vehicle_number_by_reg:
+            _vehicle_number_by_reg.update(
+                {v.registration_number: v.vehicle_number for v in db.query(Vehicle).all()}
+            )
+            _vehicle_number_by_reg.setdefault("", "")
+        return _vehicle_number_by_reg.get(reg) or ""
 
     activities = (
         db.query(Activity)
@@ -589,6 +604,12 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
                          for p_start, p_end in pauses),
                         Decimal("0"),
                     )
+                    # Flere biler på vagten (fra .ddd): timerne fordeles også pr.
+                    # bil til Lønafregning – None ved én bil (uændret beregning).
+                    act_vehicle_uses = clipped_vehicle_uses(act)
+                    veh_intervals = vehicle_assignment_intervals(
+                        act.start_time, act.end_time, act_vehicle_uses,
+                    )
                     if emp.ot_extra_alle_timer and (
                         day_type in (DayType.NORMAL, DayType.SATURDAY)
                         or not is_recognized_agreement_kind
@@ -596,13 +617,15 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
                         # Særaftale (docs/superpowers/specs/2026-09-10-ot-extra-alle-timer-design.md):
                         # normal løn + Øvrig overtid for ALLE timer, intet loft,
                         # ingen tids-tillæg.
-                        ot = calculate_flat_hours(act.start_time, act.end_time, pauses)
+                        ot = calculate_flat_hours(act.start_time, act.end_time, pauses,
+                                                  vehicle_intervals=veh_intervals)
                         ot = override_ot_extra_alle_timer(ot, is_special_day=False, rates=ot_rates)
                     elif not is_recognized_agreement_kind:
                         # Aftale-type uden for de to kendte nøgler – ingen
                         # automatisk OT-beregning endnu (se
                         # docs/superpowers/specs/2026-08-24-aftale-stamdata-design.md).
-                        ot = calculate_flat_hours(act.start_time, act.end_time, pauses)
+                        ot = calculate_flat_hours(act.start_time, act.end_time, pauses,
+                                                  vehicle_intervals=veh_intervals)
                     elif day_type in (DayType.NORMAL, DayType.SATURDAY):
                         # Lørdag er ikke længere en særlig dag – den bruger samme
                         # tidsvindues-beregning som en hverdag, med lørdagens egne
@@ -623,6 +646,7 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
                             normal_remaining=day_normal_remaining,
                             ot13_remaining=day_ot13_remaining,
                             next_day_normal_hours=_next_day_normal,
+                            vehicle_intervals=veh_intervals,
                         )
                         day_normal_remaining = ot.normal_remaining_after
                         day_ot13_remaining = ot.ot13_remaining_after
@@ -637,6 +661,7 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
                             act.start_time, act.end_time,
                             day_type, pauses,
                             kode8_remaining=day_ot13_remaining,
+                            vehicle_intervals=veh_intervals,
                         )
                         ot = override_ot_extra_alle_timer(ot, is_special_day=True, rates=ot_rates)
                         day_ot13_remaining = ot.ot13_remaining_after
@@ -645,6 +670,7 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
                             act.start_time, act.end_time,
                             day_type, pauses,
                             kode8_remaining=day_ot13_remaining,
+                            vehicle_intervals=veh_intervals,
                         )
                         day_ot13_remaining = ot.ot13_remaining_after
                     day_salt_hours = ot.total_hours if act.salt_supplement else Decimal("0")
@@ -694,6 +720,44 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
                             "salt_hours":   float(_round2(piece_salt_hours)),
                             "salt_kr":      float(_round2(piece_salt_kr)),
                         }
+                    # by_vehicle: samme timer fordelt pr. (dato, bil) når vagten er
+                    # kørt i flere biler – Lønafregning viser én linje pr. bil pr.
+                    # dag med bilens egne tidsrum (bekræftet af bruger 2026-09-30).
+                    by_vehicle_display = []
+                    for (piece_date, reg), b in ot.by_date_vehicle.items():
+                        piece_salt_hours = b["total_hours"] if act.salt_supplement else Decimal("0")
+                        piece_salt_kr = piece_salt_hours * salt_rate
+                        piece_kr = (
+                            b["normal"] * hourly_rate
+                            + b["ot_before"] * ot_rates[OT_BEFORE_KEY]
+                            + b["ot_13"] * ot_rates[OT_13_KEY]
+                            + b["ot_extra"] * ot_rates[OT_EXTRA_KEY]
+                            + b["sh_kode8"] * ot_rates[OT_13_KEY]
+                            + b["sh_kode9"] * ot_rates[OT_EXTRA_KEY]
+                            + piece_salt_kr
+                        )
+                        day_start = _dt.combine(piece_date, _dt.min.time())
+                        day_end = day_start + timedelta(days=1)
+                        times = [
+                            f"{max(u_s, day_start):%H:%M}–{min(u_e, day_end):%H:%M}"
+                            for u_s, u_e, u_reg in act_vehicle_uses
+                            if u_reg == reg and u_s < day_end and u_e > day_start
+                        ]
+                        by_vehicle_display.append({
+                            "date":           piece_date.isoformat(),
+                            "registration":   reg,
+                            "vehicle_number": _vehicle_number_for(reg),
+                            "vehicle_times":  times,
+                            "normal":       float(_round2(b["normal"])),
+                            "ot_before":    float(_round2(b["ot_before"])),
+                            "ot_13":        float(_round2(b["ot_13"] + b["sh_kode8"])),
+                            "ot_extra":     float(_round2(b["ot_extra"] + b["sh_kode9"])),
+                            "total_hours":  float(_round2(b["total_hours"])),
+                            "total_kr":     float(_round2(piece_kr)),
+                            "salt_hours":   float(_round2(piece_salt_hours)),
+                            "salt_kr":      float(_round2(piece_salt_kr)),
+                        })
+                    by_vehicle_display.sort(key=lambda piece: (piece["date"], piece["vehicle_times"]))
                     days.append({
                         "date": cur.isoformat(),
                         "normal":       float(_round2(ot.normal_hours)),
@@ -714,6 +778,7 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
                         "overnight":    row_overnight,
                         "dob_overnight": row_dob_overnight,
                         "by_date":      by_date_display,
+                        "by_vehicle":   by_vehicle_display,
                     })
         if is_hourly_flexible:
             week_normal_remaining = day_normal_remaining

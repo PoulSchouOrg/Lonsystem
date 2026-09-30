@@ -7,14 +7,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from openpyxl import load_workbook
 from pydantic import BaseModel
 from sqlalchemy import or_, and_
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, object_session, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from auth import get_current_user, log_action, require_permission, user_has_permission
 from calculators.baseline_updater import update_baseline_from_activity, is_auto_approval_enabled
 from calculators.dagsplan_helpers import effective_vehicle_for_employee
 from calculators.pay_period import get_billing_period, get_or_create_period_for_date, is_even_week
-from database.models import Activity, ActivitySource, ActivityStatus, AppUser, Employee, EmployeeSpringerFlag, PayPeriod, PayPeriodStatus
+from calculators.vehicle_uses import clipped_vehicle_uses, has_multiple_vehicles
+from database.models import Activity, ActivitySource, ActivityStatus, AppUser, Employee, EmployeeSpringerFlag, PayPeriod, PayPeriodStatus, Vehicle
 from database.schemas import (
     AbsenceGroupDatesUpdate,
     AbsenceGroupUpdateResponse,
@@ -234,6 +235,26 @@ def _day_reaches_4h_with_approved(a: Activity, dur: int) -> bool:
     return total >= FOUR_HOURS
 
 
+def _vehicle_uses_response(a: Activity) -> list[dict]:
+    """Alle biler vagten er kørt i – kun når der er mere end én (ellers vises
+    blot 'Vogn nr.' som hidtil). Vognnummeret slås op i Vognpark nu, så en
+    senere oprettet bil straks vises."""
+    uses = clipped_vehicle_uses(a)
+    if not has_multiple_vehicles(uses):
+        return []
+    session = object_session(a)
+    regs = {reg for _, _, reg in uses}
+    numbers = {
+        v.registration_number: v.vehicle_number
+        for v in session.query(Vehicle).filter(Vehicle.registration_number.in_(regs))
+    } if session else {}
+    return [
+        {"start": s.isoformat(), "end": e.isoformat(), "registration": reg,
+         "vehicle_number": numbers.get(reg)}
+        for s, e, reg in uses
+    ]
+
+
 def _to_response(a: Activity) -> ActivityResponse:
     dur = _duration_minutes(a)
     under_4h = dur < FOUR_HOURS and not _day_reaches_4h_with_approved(a, dur)
@@ -271,6 +292,7 @@ def _to_response(a: Activity) -> ActivityResponse:
         created_by=a.created_by,
         vehicle_registration=a.vehicle_registration,
         vehicle_number=a.vehicle_number,
+        vehicle_uses=_vehicle_uses_response(a),
         km_start=a.km_start,
         km_end=a.km_end,
         salt_supplement=bool(a.salt_supplement),
@@ -686,6 +708,13 @@ def update_activity(activity_id: int, body: ActivityUpdate,
         raise HTTPException(404, "Aktivitet ikke fundet")
     if body.activity_type and body.activity_type in _BACKEND_ONLY_TYPES:
         raise HTTPException(400, "Denne aktivitetstype tildeles automatisk og kan ikke angives manuelt")
+    # En vagt kørt i flere biler (fra .ddd) viser kun bil-listen – vognnummeret
+    # kan ikke ændres manuelt (bekræftet af bruger 2026-09-30).
+    if (
+        body.vehicle_number is not None and body.vehicle_number != a.vehicle_number
+        and has_multiple_vehicles(clipped_vehicle_uses(a))
+    ):
+        raise HTTPException(400, "Vagten er kørt i flere biler – vognnummeret kan ikke ændres manuelt")
     # Gem originale tider ved første rettelse (muliggør fortryd)
     times_changed = (
         (body.start_time and body.start_time != a.start_time)
@@ -1159,6 +1188,7 @@ def split_activity(activity_id: int, body: ActivitySplit,
         salt_supplement=a.salt_supplement,
         vehicle_registration=a.vehicle_registration,
         vehicle_number=a.vehicle_number,
+        vehicle_uses=a.vehicle_uses,
         km_start=a.km_start,
         km_end=a.km_end,
         status=ActivityStatus.pending,

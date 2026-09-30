@@ -53,12 +53,18 @@ def _expand_day(day: dict) -> list:
     via 'by_date' (sat af _calculate_employee) i stedet for at ligge samlet på
     vagtens startdato – bekræftet af bruger 2026-09-09 ('timerne skal ligge på
     de dage, hvor de afholdes'). Fraværs-/nul-rækker har intet 'by_date' og
-    udfoldes derfor uændret."""
-    by_date = day.get("by_date")
-    if not by_date:
+    udfoldes derfor uændret.
+
+    Er vagten kørt i flere biler, udfoldes den i stedet via 'by_vehicle' –
+    ét stykke pr. (kalenderdag, bil) med bilens egne tidsrum (bekræftet af
+    bruger 2026-09-30)."""
+    parts = [(piece["date"], piece) for piece in day.get("by_vehicle") or []]
+    if not parts:
+        parts = list((day.get("by_date") or {}).items())
+    if not parts:
         return [day]
     pieces = []
-    for i, (date_str, part) in enumerate(by_date.items()):
+    for i, (date_str, part) in enumerate(parts):
         piece = {**day, "date": date_str, **part}
         if i > 0:
             # Overnatnings-markøren hører til vagtens FØRSTE dag – ikke de
@@ -96,6 +102,7 @@ def _aggregate_days(days: list) -> list:
                     "overnight": 0, "dob_overnight": 0,
                     "absence_kr": None, "absence_hours": None,
                     "_absence_types": [],
+                    "vehicle_times": [],
                 }
                 order.append(key)
             bucket = buckets[key]
@@ -107,6 +114,9 @@ def _aggregate_days(days: list) -> list:
                 bucket["absence_kr"] = round((bucket["absence_kr"] or 0) + piece["absence_kr"], 2)
                 bucket["absence_hours"] = round(
                     (bucket["absence_hours"] or 0) + (piece.get("absence_hours") or 0), 2)
+            for vehicle_time in piece.get("vehicle_times") or []:
+                if vehicle_time not in bucket["vehicle_times"]:
+                    bucket["vehicle_times"].append(vehicle_time)
             absence_type = piece.get("absence_type")
             if absence_type and absence_type not in bucket["_absence_types"]:
                 bucket["_absence_types"].append(absence_type)
@@ -138,9 +148,12 @@ def _aggregate_days(days: list) -> list:
         # calculators/overtime.py), så tillægstimerne trækkes fra til visning,
         # ligesom Prøvekørsel-excel'en allerede gør (payroll_router.py). Total
         # tid/Total kr. er upåvirket. Bekræftet af bruger 2026-09-09.
-        bucket["normal"] = round(
+        # max(0, …): tillægstimerne er hver især afrundet til 2 decimaler, så en
+        # kort bil-linje med fx 1 min OT 1-3 (0,0167 -> 0,02) ellers kunne give
+        # -0,01 normaltimer (set 2026-09-30, Knudsen 24-08, 2. bil).
+        bucket["normal"] = max(0.0, round(
             bucket["normal"] - bucket["ot_before"] - bucket["ot_13"] - bucket["ot_extra"], 2,
-        ) + 0.0
+        ) + 0.0)
         result.append(bucket)
     return result
 

@@ -160,6 +160,8 @@ class ActivityResponse(BaseModel):
     created_by: Optional[str] = None
     vehicle_registration: Optional[str] = None
     vehicle_number: Optional[str] = None
+    # Alle biler vagten er kørt i (kun sat når der er mere end én): [{start, end, registration, vehicle_number}]
+    vehicle_uses: list[dict] = []
     km_start: Optional[int] = None
     km_end: Optional[int] = None
     salt_supplement: bool = False

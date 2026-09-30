@@ -174,6 +174,11 @@ class Activity(Base):
     split_part = Column(Integer, nullable=True)
     vehicle_registration = Column(String, nullable=True)
     vehicle_number = Column(String, nullable=True)
+    # Alle biler vagten er kørt i ifølge .ddd-filen: [[start_iso, slut_iso, reg], ...]
+    # (lokal tid, kronologisk). vehicle_registration/vehicle_number er fortsat
+    # hovedbilen (flest timer), som vagtplan/timeseddel/Danløn-CSV bruger;
+    # Lønafregning deler vagten op pr. bil ud fra denne liste.
+    vehicle_uses = Column(JSON, nullable=True)
     km_start = Column(Integer, nullable=True)
     km_end = Column(Integer, nullable=True)
     salt_supplement = Column(Boolean, default=False, nullable=False)

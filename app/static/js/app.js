@@ -1262,7 +1262,8 @@ async function openActivityDetail(id) {
       <button type="button" class="btn btn-secondary" onclick="saveAbsencePeriodDates('${absencePeriod.groupId}')" style="font-size:13px;padding:5px 14px">Gem periodedatoer</button>
     </div>` : ""}
     <div class="detail-grid">
-      <div class="detail-item"><label>Vogn nr.</label><span>${a.vehicle_number || "–"}</span></div>
+      ${a.vehicle_uses && a.vehicle_uses.length ? ""
+        : `<div class="detail-item"><label>Vogn nr.</label><span>${a.vehicle_number || "–"}</span></div>`}
       <div class="detail-item"><label>KM start</label><span>${a.km_start != null ? a.km_start + " km" : "–"}</span></div>
       <div class="detail-item"><label>KM slut</label><span>${a.km_end != null ? a.km_end + " km" : "–"}</span></div>
       <div class="detail-item"><label>Salttillæg</label><span>${a.salt_supplement ? "Ja" : "Nej"}</span></div>
@@ -1290,13 +1291,17 @@ async function openActivityDetail(id) {
         <div class="dt-picker" id="edit-end"></div>
       </div>
     </div>
-    <div class="form-group" style="margin-bottom:14px">
+    ${a.vehicle_uses && a.vehicle_uses.length
+      // Vagt kørt i flere biler (fra .ddd): kun visning, vognnummeret kan ikke
+      // ændres manuelt (bekræftet af bruger 2026-09-30). Tom værdi = uændret.
+      ? `<input type="hidden" id="edit-vehicle" value="">`
+      : `<div class="form-group" style="margin-bottom:14px">
       <label>Vogn nr.</label>
       <select id="edit-vehicle">
         <option value="">– Ingen –</option>
         ${state.vehicles.slice().sort((va,vb) => va.vehicle_number.localeCompare(vb.vehicle_number,"da",{numeric:true})).map(v => `<option value="${v.vehicle_number}" ${a.vehicle_number === v.vehicle_number ? "selected" : ""}>${v.vehicle_number} (${v.registration_number})</option>`).join("")}
       </select>
-    </div>
+    </div>`}
     <div class="form-row" style="margin-bottom:14px">
       <div class="form-group" style="min-width:0">
         <label>KM start</label>
@@ -1307,6 +1312,12 @@ async function openActivityDetail(id) {
         <input type="number" id="edit-km-end" min="0" value="${a.km_end != null ? a.km_end : ""}">
       </div>
     </div>
+    ${a.vehicle_uses && a.vehicle_uses.length ? `
+    <div class="form-group" style="margin-bottom:14px">
+      <label>Biler på vagten</label>
+      <div style="font-size:14px;line-height:1.6">${a.vehicle_uses.map(u =>
+        `${h(u.vehicle_number || "–")} (${h(u.registration)}) ${formatTime(u.start)}–${formatTime(u.end)}`).join("<br>")}</div>
+    </div>` : ""}
     <div class="form-group" style="margin-bottom:14px">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500">
         <input type="checkbox" id="edit-salt" ${a.salt_supplement ? "checked" : ""} ${a.status !== "pending" ? "disabled" : ""} style="width:16px;height:16px;cursor:${a.status !== 'pending' ? 'not-allowed' : 'pointer'}">
