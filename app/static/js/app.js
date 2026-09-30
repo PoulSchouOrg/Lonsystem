@@ -1059,9 +1059,12 @@ function renderCellActivity(a, role = "full") {
   const incomplete = a.is_likely_incomplete
     ? `<span class="incomplete-mark" title="Filen ser ud til at være hentet midt i vagten (0 km registreret eller unormalt kort vagt, og dagen slutter ikke i hvil) – resten af dagen mangler formentlig. Hent en ny fil senere og importér igen.">✕</span>`
     : "";
+  const note = (a.comment && a.comment.trim())
+    ? `<span class="comment-note" title="Kommentar: ${h(a.comment)}"></span>`
+    : "";
   if (a.activity_type !== "normal") {
     return `<div class="badge-group">
-      <span class="time-badge absence ${a.status}" data-id="${a.id}" title="${TYPE_LABELS[a.activity_type]} – ${statusLabel(a.status)}">${ABSENCE_LABELS[a.activity_type] || a.activity_type}</span>
+      <span class="time-badge absence ${a.status}" data-id="${a.id}" title="${TYPE_LABELS[a.activity_type]} – ${statusLabel(a.status)}">${ABSENCE_LABELS[a.activity_type] || a.activity_type}${note}</span>
     </div>`;
   }
   const pctD = pct(a.driving_pct), pctW = pct(a.other_work_pct), pctAv = pct(a.availability_time_pct);
@@ -1075,12 +1078,12 @@ function renderCellActivity(a, role = "full") {
   const autoSuffix = (a.status === "approved" && a.auto_approved) ? `<span class="auto-dot" title="Auto-godkendt"></span>` : "";
   if (role === "start") {
     return `<div class="badge-group">
-      <span class="time-badge ${a.status}${autoCls}" data-id="${a.id}" title="${title}">${k}${formatTime(a.start_time)}${warn}${autoSuffix}${incomplete}</span>
+      <span class="time-badge ${a.status}${autoCls}" data-id="${a.id}" title="${title}">${k}${formatTime(a.start_time)}${warn}${autoSuffix}${incomplete}${note}</span>
     </div>`;
   }
   if (role === "end") {
     return `<div class="badge-group">
-      <span class="time-badge ${a.status}${autoCls}" data-id="${a.id}" title="${title}">${k}${formatTime(a.end_time)}${autoSuffix}${incomplete}</span>
+      <span class="time-badge ${a.status}${autoCls}" data-id="${a.id}" title="${title}">${k}${formatTime(a.end_time)}${autoSuffix}${incomplete}${note}</span>
     </div>`;
   }
   if (role === "piece") {
@@ -1089,6 +1092,7 @@ function renderCellActivity(a, role = "full") {
       <span class="time-badge time-badge-stacked ${a.status}${autoCls}" data-id="${id}" title="${title}">
         <span class="time-line">${k}${formatTime(a.start_time)}${warn}</span>
         <span class="time-line">${formatTime(a.end_time)}${autoSuffix}${incomplete}</span>
+        ${note}
       </span>
     </div>`;
   }
@@ -1096,6 +1100,7 @@ function renderCellActivity(a, role = "full") {
     <span class="time-badge time-badge-stacked ${a.status}${autoCls}" data-id="${a.id}" title="${title}">
       <span class="time-line">${k}${formatTime(a.start_time)}${warn}</span>
       <span class="time-line">${formatTime(a.end_time)}${autoSuffix}${incomplete}</span>
+      ${note}
     </span>
   </div>`;
 }

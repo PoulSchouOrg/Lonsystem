@@ -350,6 +350,19 @@ tbody tr.status-deactivated { border-left: 3px solid var(--deactivated); opacity
   transition: filter .1s;
 }
 .time-badge:hover { filter: brightness(1.12); }
+.time-badge { position: relative; }
+/* Lille post-it i nederste højre hjørne – vises kun når aktiviteten har en kommentar */
+.comment-note {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 9px;
+  height: 9px;
+  background: linear-gradient(225deg, #c9a600 0 3px, #ffe45c 3px);
+  border-radius: 1px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.25);
+  cursor: help;
+}
 .time-badge.pending     { background: #44546a; }
 .time-badge.approved    { background: #27ae60; }
 .time-badge.auto-approved { background: var(--accent); }
