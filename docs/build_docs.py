@@ -2883,7 +2883,8 @@ def build_bruger():
     bullet(doc, "Aktiviteten godkendes automatisk (approved_by sættes til din bruger) – kræver ikke separat godkendelse bagefter.")
     bullet(doc, "Ferie, sygdom, feriefri m.fl.: starttidspunktet sættes automatisk til 06:00, og sluttidspunktet beregnes ud fra medarbejderens normaltimer den pågældende dag. Vælger du 'Til dato' for at oprette en periode, oprettes én aktivitet PR. HVERDAG i perioden (ikke én sammenhængende aktivitet) – hver dag tæller sine egne normaltimer (typisk 7,4 t).")
     bullet(doc, "Selvbetalt fridag og Løn andet sted fra kan siden 2026-09-22 også oprettes som en periode ('Til dato' udfyldt), på nøjagtig samme måde som Ferie – én aktivitet pr. hverdag i intervallet.")
-    bullet(doc, "Afspadsering som periode ('Til dato' udfyldt) følger samme regel: 7,4 t (eller medarbejderens skemalagte timer) pr. hverdag, uanset klokketid. En enkelt afspadseringsdag (uden 'Til dato') kan derimod redigeres til en delvis dag med selvvalgt start-/sluttid, og den faktiske varighed bruges da i lønberegningen.")
+    bullet(doc, "Afspadsering som periode ('Til dato' udfyldt) følger samme regel: 7,4 t (eller medarbejderens skemalagte timer) pr. hverdag, uanset klokketid. En enkelt afspadseringsdag (uden 'Til dato') kan derimod redigeres til en delvis dag med selvvalgt start-/sluttid, og den faktiske varighed bruges da i lønberegningen. Standardtiderne (06:00 + skemalagte timer) sættes kun, når datoen vælges eller ændres – en manuelt rettet start- eller sluttid bevares (rettet 2026-09-30: før sprang starttiden tilbage til 06:00, så snart den blev ændret).")
+    bullet(doc, "En eksisterende afspadsering (også en dag fra en periode, da hver dag er sin egen aktivitet) kan rettes i aktivitetsvinduet via 'Ret starttid'/'Ret sluttid' → 'Gem ændringer'. Den nye varighed bruges i lønberegningen, og ændringen gælder kun den ene dag. Kræver 'Redigér aktiviteter' og en ikke-låst lønperiode.")
 
     body(doc, (
         "De tilgængelige fraværstyper administreres i Stamdata-modulet under fanen 'Fraværstyper'. "
@@ -2893,7 +2894,7 @@ def build_bruger():
         ["Type", "Beskrivelse"],
         [
             ["Ferie",          "Registrerer en feriedag. Start: 06:00. Slut: 06:00 + normaltimer for dagen. Vises i Lønkørsel og Lønafregning, men kommer aldrig med i Danløn-CSV'en (der findes ingen løntypekode for ferie)."],
-            ["Afspadsering",   "Registrerer afspadsering. Som periode ('Til dato') tæller hver hverdag 7,4 t/skemalagte timer; som enkeltdag bruges den faktiske start-/sluttid."],
+            ["Afspadsering",   "Registrerer afspadsering. Som periode ('Til dato') tæller hver hverdag 7,4 t/skemalagte timer; som enkeltdag bruges den faktiske start-/sluttid, som kan rettes både ved oprettelse og bagefter i aktivitetsvinduet."],
             ["Fri",            "Registrerer fridag."],
             ["Løn andet sted fra", "Tilføjet 2026-09-22. Fungerer som Selvbetalt fridag (0 kr., ingen linje i Danløn CSV) – bruges som en kommentar til lønbogholderne om, at dagen bevidst er korrekt uden data i dette system, fx fordi medarbejderen har kørt eksport/for et andet selskab den dag."],
             ["Skole/kursus",   "Registrerer skole- eller kursusdag."],

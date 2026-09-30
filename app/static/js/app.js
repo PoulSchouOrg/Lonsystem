@@ -2773,7 +2773,10 @@ async function openManualActivityModal(empId = null, dateIso = null, opts = {}) 
     applyDagsplanVehicleDefault();
   };
   // Lyt på dato-ændring inde i dt-picker containeren
-  document.getElementById("manual-start").addEventListener("change", () => {
+  document.getElementById("manual-start").addEventListener("change", (e) => {
+    // Kun dato-skift skal udløse standardtider – ellers nulstilles en manuelt
+    // rettet starttid (fx delvis afspadseringsdag) straks tilbage til 06:00.
+    if (e.target.classList.contains("dt-time")) return;
     const t = document.getElementById("manual-type").value;
     if (t === "ferie" || t === "selvbetalt_fridag" || t === "loen_andet_sted_fra") applyFerieDefaults();
     if (t === "sygdom" || t === "barn_1sygedag" || t === "paragraf_56_syg" || t === "skole_kursus" || t === "barsel") applySygdomDefaults();
