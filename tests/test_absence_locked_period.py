@@ -160,6 +160,22 @@ def test_locked_dates_lists_only_closed_period_dates(db, employee):
     assert result == [period.end_date - timedelta(days=1), period.end_date]
 
 
+def test_cannot_create_vagtplan_comment_in_closed_period(db, employee, monkeypatch):
+    import routers.vagtplan_comments as vc
+    from database.models import VagtplanComment
+    from database.schemas import VagtplanCommentCreate
+    from datetime import date
+    monkeypatch.setattr(vc, "_has_edit_access", lambda *a: True)
+    period = get_or_create_period_for_date(date(2026, 1, 5), db)
+    period.status = PayPeriodStatus.closed
+    db.commit()
+    with pytest.raises(HTTPException) as exc:
+        vc.create_comment(VagtplanCommentCreate(employee_id=employee.id, date=date(2026, 1, 5), text="x"),
+                          current_user=_user(), db=db)
+    assert exc.value.status_code == 400
+    assert db.query(VagtplanComment).count() == 0
+
+
 def test_response_exposes_period_closed(db, employee):
     from routers.activities import _to_response
     a = _activity(db, employee, "ferie", closed=True)

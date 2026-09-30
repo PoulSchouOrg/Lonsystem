@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, log_action, user_has_permission
-from database.models import AppUser, Employee, VagtplanComment
+from calculators.pay_period import get_or_create_period_for_date
+from database.models import AppUser, Employee, PayPeriodStatus, VagtplanComment
 from database.schemas import VagtplanCommentCreate, VagtplanCommentResponse
 from database.session import get_db
 
@@ -46,8 +47,14 @@ def create_comment(body: VagtplanCommentCreate,
         raise HTTPException(404, "Medarbejder ikke fundet")
     if not _has_edit_access(db, current_user, emp):
         raise HTTPException(403, "Ingen redigeringsret til Vagtplan for denne medarbejder")
+    # Ingen kommentarer (oprettelse eller rettelse) på datoer i en låst lønperiode –
+    # bekræftet af bruger 2026-09-30.
+    if get_or_create_period_for_date(body.date, db).status == PayPeriodStatus.closed:
+        raise HTTPException(
+            400, f"Kan ikke gemme kommentar d. {body.date.strftime('%d-%m-%Y')} – lønperioden er låst"
+        )
 
-    existing = db.query(VagtplanComment).filter(
+    existing =db.query(VagtplanComment).filter(
         VagtplanComment.employee_id == body.employee_id,
         VagtplanComment.date == body.date,
     ).first()
