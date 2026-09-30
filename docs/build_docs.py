@@ -1575,8 +1575,9 @@ def build_teknisk():
         "manualPauses[] sendes som pause_intervals i POST-body til POST /api/activities.",
         "ActivityCreate-skemaet validerer listen (list[list[str]]).",
         "_duration_minutes(a) i activities.py klipper hvert interval til aktivitetens bounds og fratrækker det fra bruttotiden. Påvirker is_under_4h og is_over_12h.",
+        "_to_response() sender pause_minutes med i ActivityResponse (bruttovarighed minus _duration_minutes(a)), så arbejdstid + pause altid giver vagtens længde. renderCellActivity() i app.js viser feltet i aktivitetens tooltip.",
         "calculate_overtime() i overtime.py bruger _subtract_pauses() til at fratrække pauserne i det korrekte tillægsvindue.",
-        "openActivityDetail() i app.js beregner Aktivitetsfordeling-bjælken: for manuelle aktiviteter uden tachografsegmentdata beregnes Hvil/pause-% fra pause_intervals og Effektiv tid-% som resten.",
+        "openActivityDetail() i app.js beregner Aktivitetsfordeling-bjælken: for manuelle aktiviteter uden tachografsegmentdata beregnes Pause-% fra pause_intervals og Effektiv tid-% som resten.",
     ]:
         bullet(doc, step)
     note_box(doc,
@@ -2676,9 +2677,10 @@ def build_bruger():
         "For fraværstyper (ferie, fri m.fl.) og overnatning er pausesektionen skjult.",
         "GODT AT VIDE"
     )
-    body(doc, "Pauserne påvirker tre steder i systemet:")
+    body(doc, "Pauserne påvirker fire steder i systemet:")
     bullet(doc, "Sum, effektiv tid – vises i aktivitetsdetaljerne og er fratrukket pausetid.")
-    bullet(doc, "Aktivitetsfordeling – manuelle aktiviteter med pauser viser 'Effektiv tid' (blå) og 'Hvil/pause' (grå) i %-bjælken.")
+    bullet(doc, "Tooltip i aktivitetsoversigten – hold musen over en vagt for at se tidsrum, arbejdstid, pause, status og fordelingen Kørsel / Andet arbejde / Rådighed / Pause i %.")
+    bullet(doc, "Aktivitetsfordeling – manuelle aktiviteter med pauser viser 'Effektiv tid' (blå) og 'Pause' (grå) i %-bjælken.")
     bullet(doc, "Lønberegning – pauser fratrækkes i det præcise tidsvindue de afholdes, så overtidstillæg beregnes korrekt.")
 
     heading(doc, "Redigering af en fraværsperiode", 2, "6.4")

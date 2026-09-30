@@ -1068,9 +1068,9 @@ function renderCellActivity(a, role = "full") {
   const pctHasData = pctD > 0 || pctW > 0 || pctAv > 0;
   const pctR = Math.max(0, 100 - pctD - pctW - pctAv);
   const pctInfo = pctHasData
-    ? ` — Kørsel ${fmtPct(pctD)}% / Andet arbejde ${fmtPct(pctW)}% / Rådighed ${fmtPct(pctAv)}% / Hvil ${fmtPct(pctR)}%`
+    ? ` — Kørsel ${fmtPct(pctD)}% / Andet arbejde ${fmtPct(pctW)}% / Rådighed ${fmtPct(pctAv)}% / Pause ${fmtPct(pctR)}%`
     : "";
-  const title = `${a.employee_name}: ${formatTime(a.start_time)}–${formatTime(a.end_time)} (${formatDuration(a.duration_minutes)}) – ${statusLabel(a.status)}${a.is_manual ? " – manuel" : ""}${pctInfo}`;
+  const title = `${a.employee_name}: ${formatTime(a.start_time)}–${formatTime(a.end_time)} (${formatDuration(a.duration_minutes)}, pause ${formatDuration(a.pause_minutes || 0)}) – ${statusLabel(a.status)}${a.is_manual ? " – manuel" : ""}${pctInfo}`;
   const autoCls = (a.status === "approved" && a.auto_approved) ? " auto-approved" : "";
   const autoSuffix = (a.status === "approved" && a.auto_approved) ? `<span class="auto-dot" title="Auto-godkendt"></span>` : "";
   if (role === "start") {
@@ -1103,7 +1103,7 @@ function renderCellActivity(a, role = "full") {
 function renderPctBar(a) {
   const d = pct(a.driving_pct), w = pct(a.other_work_pct), av = pct(a.availability_time_pct);
   const r = Math.max(0, 100 - d - w - av);
-  return `<div class="pct-bar" title="Kørsel ${fmtPct(d)}% / Arbejde ${fmtPct(w)}% / Rådighed ${fmtPct(av)}% / Hvil ${fmtPct(r)}%">
+  return `<div class="pct-bar" title="Kørsel ${fmtPct(d)}% / Arbejde ${fmtPct(w)}% / Rådighed ${fmtPct(av)}% / Pause ${fmtPct(r)}%">
     <div class="pct-driving" style="width:${d}%"></div>
     <div class="pct-work" style="width:${w}%"></div>
     <div class="pct-avail" style="width:${av}%"></div>
@@ -1350,7 +1350,7 @@ async function openActivityDetail(id) {
         <div class="pct-legend-item"><span class="pct-dot" style="background:#2563eb"></span>${effektivLabel} ${fmtPct(d)}%</div>
         ${!hasSegmentData ? "" : `<div class="pct-legend-item"><span class="pct-dot" style="background:#059669"></span>Andet arbejde ${fmtPct(w)}%</div>
         <div class="pct-legend-item"><span class="pct-dot" style="background:#d97706"></span>Rådighedstid ${fmtPct(av)}%</div>`}
-        <div class="pct-legend-item"><span class="pct-dot" style="background:#9ca3af"></span>Hvil/pause ${fmtPct(r)}%</div>
+        <div class="pct-legend-item"><span class="pct-dot" style="background:#9ca3af"></span>Pause ${fmtPct(r)}%</div>
       </div>
     </div>
 

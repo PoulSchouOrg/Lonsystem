@@ -141,6 +141,7 @@ class ActivityResponse(BaseModel):
     start_time: datetime
     end_time: datetime
     duration_minutes: int
+    pause_minutes: int = 0
     availability_time_pct: Optional[Decimal]
     rest_pause_pct: Optional[Decimal]
     other_work_pct: Optional[Decimal]

@@ -276,7 +276,7 @@ ABSENCE_TYPES = new Set()  // populeres af loadAbsenceTypes() (linje 103)
 | Funktion | Linje | Hvad |
 |---|---|---|
 | `renderActivitiesTable()` | 482 | 14-dages grid-rendering |
-| `renderCellActivity(a)` | 646 | Badge-HTML for én aktivitet i grid |
+| `renderCellActivity(a, role)` | 1056 | Badge-HTML for én aktivitet i grid. Tooltip (`title`) på normal-badges: tidsrum, arbejdstid, `pause_minutes`, status, manuel samt Kørsel / Andet arbejde / Rådighed / Pause i % (Pause = restandel). Midnatsstykker (`role="piece"`) viser hele vagtens arbejdstid og pause |
 | `openActivityDetail(id)` | 777 | Åbner modal-activity; Aktivitetsfordeling-bjælken beregner pause-% for manuelle aktiviteter uden segmentdata |
 | `saveActivityTimes()` | 1163 | PATCH tider |
 | `quickApprove(id)` | 717 | Sætter selectedActivityId → openApproveModal |
@@ -552,7 +552,8 @@ Semantik (v15+): `normal_hours = total_hours` (alle timer efter pausefradrag). O
 **Vagter der krydser midnat – kun søndag/helligdag splittes (2026-07-02):** Normaltids-/OT13-loftet hører til VAGTEN (den dag den startede), ikke kalenderdagen – en fredag-til-lørdag-vagt bruger fredagens loft, indtil det er brugt op, helt automatisk via `calculate_overtime()`s kronologiske segment-løkke (intet split nødvendigt, loft-baserede dagtyper NORMAL/SATURDAY kan altid deles op i én sammenhængende beregning). Undtagelsen er søndage/helligdage, hvor reglen er loft-uafhængig ("alle kørte timer → kode 9, uanset tidspunkt") – en vagt der STARTER på en søndag/helligdag SKAL derfor splittes ved midnat (`_split_into_day_pieces()` i `payroll_router.py`), så resten af vagten falder tilbage til den følgende dags egne regler. `_calculate_employee()` afgør splittet via `classify_day(act.start_time.date(), holiday_map) in _ABSOLUTE_DAY_TYPES`. `DayType.SATURDAY` bruger nu altid `calculate_overtime()` (aldrig `calculate_special_day_overtime()`) – lørdagens tidligere særregel ("ingen garanterede timer → første 3 kørte timer = kode 8") er fjernet, da den modsagde de faktiske forventede tal; med lørdagens eget (typisk 0) loft rammer den normale dagvindues-logik automatisk samme resultat.
 
 ## Pausehåndtering (activities.py + overtime.py)
-`_duration_minutes(a)` i `activities.py` fratrækker `pause_intervals` fra brutto-varighed → bruges til "Sum, effektiv tid" i UI og `is_under_4h`/`is_over_12h`.  
+`_duration_minutes(a)` i `activities.py` fratrækker `pause_intervals` fra brutto-varighed → bruges til "Sum, effektiv tid" i UI og `is_under_4h`/`is_over_12h`. Pauser tages fra `rest`-segmenter når aktiviteten har `segments` (DDD), ellers fra `pause_intervals` (manuelle).  
+`ActivityResponse.pause_minutes` (2026-09-30) = bruttovarighed − `_duration_minutes(a)`, beregnet i `_to_response()` – samme pausekilde, så arbejdstid + pause altid = vagtens længde. Vises i aktivitetens tooltip (`renderCellActivity`). For DDD-aktiviteter er pause-% lig `rest_pause_pct`; i UI hedder "Hvil" nu "Pause" overalt.  
 `_calculate_employee()` i `payroll_router.py` sender pauser til `calculate_overtime()` som `[(datetime, datetime), ...]` → `_subtract_pauses()` fjerner dem fra arbejdsintervallerne FØR timefordeling.  
 Pauser oprettes manuelt via `modal-pause` (kun HH:MM, dato arves fra aktivitetens startdato). Gemt som `[["ISO","ISO"],...]` i `pause_intervals`-kolonnen.
 

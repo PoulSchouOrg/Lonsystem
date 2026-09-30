@@ -269,6 +269,9 @@ def _to_response(a: Activity) -> ActivityResponse:
         start_time=a.start_time,
         end_time=a.end_time,
         duration_minutes=dur,
+        # Pausetid = vagtens længde minus arbejdstid – samme kilde (segmenter/
+        # pause_intervals) som _duration_minutes, så tallene altid stemmer.
+        pause_minutes=max(0, int((a.end_time - a.start_time).total_seconds() // 60) - dur),
         availability_time_pct=a.availability_time_pct,
         rest_pause_pct=a.rest_pause_pct,
         other_work_pct=a.other_work_pct,
