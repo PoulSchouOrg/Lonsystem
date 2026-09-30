@@ -107,6 +107,7 @@ CRUD under Stamdata → "Disponentgrupper" (kræver `stamdata`-tilladelse). Ligh
 | parent_activity_id / split_part | Int | Split-relation |
 | vehicle_registration | String | Nummerplade (fx DF67671) |
 | vehicle_number | String | Vognnummer |
+| vehicle_uses | JSON nullable | Alle biler vagten er kørt i fra .ddd: `[["ISO","ISO","REG"],...]` (se "Flere biler på én vagt") |
 | auto_approved | Boolean | True hvis auto-godkendt |
 | auto_approval_flags | JSON | Liste over afvisningsårsager (tom = godkendt) |
 | baseline_duration_minutes | Numeric nullable | Varighed (min) der sidst blev bidraget til baseline (deduplication) |
@@ -666,6 +667,16 @@ Ny sidebar-side der digitaliserer den daglige fordeling af vogne til chauffører
 - `saveAbsencePeriodDates()` genkender nu gruppens `activity_type` og bruger `getAllDates` +
   bredere overlapskontrol for overnatnings-grupper ved efterfølgende periode-redigering.
 - Se `docs/superpowers/specs/2026-09-16-overnatning-periode-design.md` for fulde designbeslutninger.
+
+## Flere biler på én vagt (2026-09-30, ddd_parser.py + vehicle_uses.py + overtime.py + day_type.py + payroll_router.py + payroll_settlement_router.py + activities.py + app.js)
+- **Parser:** `_extract_vehicle_uses()` (strengere end `_extract_vehicle_usage_records()`): codePage-byte 1-16 (filtrerer forskudte læsninger som "M23112"), Gen1-poster foretrækkes; Gen2-poster (efterfulgt af 17-tegns VIN) kun på datoer uden Gen1-poster. `_lookup_vehicle_uses()` klipper til vagten, afrunder til hele minutter → `ParsedActivity.vehicle_uses`.
+- **Hovedbilen** (`vehicle_registration`/`vehicle_number`, flest timer) er UÆNDRET → vagtplan, PDF-timeseddel og Danløn-CSV er upåvirkede (brugerkrav).
+- **Import:** `_vehicle_uses_json()` i `import_ddd.py`; gemmes ved oprettelse, rettes ved genimport uanset status. Split kopierer listen.
+- **`calculators/vehicle_uses.py`:** `clipped_vehicle_uses(act)` (klip til aktivitetens tider), `vehicle_assignment_intervals()` = nærmeste-bil-reglen (før første → første, hul → forrige, efter sidste → sidste; None ved én bil).
+- **Beregning:** `calculate_overtime/calculate_flat_hours/calculate_special_day_overtime(..., vehicle_intervals=)` → `OvertimeResult.by_date_vehicle[(dato, reg)]`. Selve beregningen kører på de uændrede segmenter; `_allocate_to_vehicles()` fordeler bagefter kronologisk (første bil forbruger loftet først) → totalen ændres ALDRIG (test: `test_vehicle_split_never_changes_employee_total`).
+- **Lønafregning:** `_calculate_employee()` lægger `by_vehicle` på dags-indgangen (vognnummer slås op i Vognpark ved beregning, tomt hvis bilen ikke findes); `_expand_day()` bruger `by_vehicle` før `by_date`; rækken får `vehicle_times` (vises IKKE – kun vognnummer i kolonnen, bekræftet af bruger 2026-09-30). Lønafregning-CSV får samme rækker (ingen ny kolonne).
+- **Aktivitet:** `ActivityResponse.vehicle_uses` (kun ved ≥2 biler) → modal viser "Biler på vagten" mellem KM-felterne og Salttillæg; vognnummer-dropdown erstattes af skjult tomt felt, og `PATCH` afviser ændret `vehicle_number` (400).
+- Tests: `tests/test_multi_vehicle.py`.
 
 ---
 
