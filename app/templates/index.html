@@ -84,7 +84,7 @@
   <nav class="sidebar">
     <div class="sidebar-section">
       <div class="sidebar-label">Løn</div>
-      <div class="sidebar-item active" data-view="activities">
+      <div class="sidebar-item active" data-view="activities" data-perm-require="view_calendar">
         <span class="icon">📋</span> Aktiviteter
       </div>
       <div class="sidebar-item" data-view="payroll" data-perm-require="payroll">
@@ -118,9 +118,9 @@
         <span class="icon">💵</span> Tillæg
       </div>
     </div>
-    <div class="sidebar-section" data-perm-require="user_management">
+    <div class="sidebar-section">
       <div class="sidebar-label">System</div>
-      <div class="sidebar-item" data-view="users-admin">
+      <div class="sidebar-item" data-view="users-admin" data-perm-require="user_management">
         <span class="icon">🔑</span> Brugere
       </div>
       <div class="sidebar-item" data-view="stamdata" data-perm-require="stamdata">
@@ -162,7 +162,7 @@
         </select>
         <div class="spacer"></div>
         <button id="btn-auto-approve" class="btn btn-secondary" onclick="bulkAutoApprove()" title="Auto-godkend alle egnede ventende aktiviteter i denne periode">Autogodkend aktiviteter</button>
-        <button class="btn btn-primary" onclick="openManualActivityModal()">+ Tilføj aktivitet</button>
+        <button class="btn btn-primary" data-perm-require="edit_activities" onclick="openManualActivityModal()">+ Tilføj aktivitet</button>
       </div>
 
       <div class="table-wrapper">

@@ -30,6 +30,7 @@
 | dispatcher_group_id | INTEGER FK NULL | Reference til disponentgruppe (én, ikke flere – se `dispatcher_groups` nedenfor) |
 | fast_bil | BOOLEAN NOT NULL DEFAULT FALSE | "Fast bil" – foreslår medarbejderen som standardchauffør på `fast_bil_vehicle_id` i Dagsplan |
 | fast_bil_vehicle_id | INTEGER FK NULL | Den faste vogn (kun relevant når `fast_bil=true`), ikke begrænset til egen disponentgruppe |
+| absence_vehicle_id | INTEGER FK NULL | "Vognnummer ved fravær" (2026-09-30) – forudfyldes som vognnummer ved fravær. Påkrævet i medarbejder-modalen (kun frontend); ingen fallback til disponentgruppen |
 | ot_extra_alle_timer | BOOLEAN NOT NULL DEFAULT FALSE | Særaftale: alle arbejdstimer giver Øvrig overtid (kode 9) oveni normal løn, uden dagligt loft – se `OVERTIME_RULES.md` |
 | created_at | DATETIME | Oprettelsestidspunkt |
 | updated_at | DATETIME | Sidst opdateret |
@@ -84,7 +85,8 @@ Anciennitet beregnes automatisk fra `hire_date`. Pop-up ved 9 måneder hvis `anc
 | approved_at | DATETIME | Godkendelsestidspunkt |
 | deactivated_by | TEXT NULL | Initialer på den der deaktiverede |
 | updated_by | TEXT NULL | Initialer på den bruger der senest gemte en rettelse via PATCH – NULL indtil første redigering, overskrives ved hver efterfølgende (ingen historik) |
-| vehicle_registration, vehicle_number | TEXT NULL | Nummerplade / internt vognnummer på aktiviteten |
+| vehicle_registration, vehicle_number | TEXT NULL | Nummerplade / internt vognnummer på aktiviteten (hovedbilen = flest timer) |
+| vehicle_uses | JSON NULL | `[[start_iso, slut_iso, reg], ...]` – alle biler vagten er kørt i (2026-09-30). Kun .ddd-vagter; bruges af Lønafregning (én linje pr. bil pr. dag) |
 | comment | TEXT | Fri kommentar |
 | parent_activity_id | INTEGER FK NULL | Hvis splittet: reference til original |
 | split_part | INTEGER NULL | 1 = første del (deaktiveret), 2 = anden del (aktiv) |
@@ -112,7 +114,7 @@ Anciennitet beregnes automatisk fra `hire_date`. Pop-up ved 9 måneder hvis `anc
 | id | INTEGER PK | Intern ID |
 | name | TEXT NOT NULL | Gruppenavn |
 | description | TEXT | Beskrivelse |
-| vehicle_id | INTEGER FK NULL | Gruppens "standardvogn" – bruges til autoudfyldning af vognnummer på fraværstype-aktiviteter |
+| vehicle_id | INTEGER FK NULL | Gruppens "standardvogn" – bruges IKKE længere (fravær-default kommer fra `employees.absence_vehicle_id` siden 2026-09-30); kan stadig redigeres i Stamdata |
 
 En medarbejder tilhører højst ÉN gruppe (`employees.dispatcher_group_id`, se ovenfor) – ikke en
 mange-til-mange-relation. Feltet har historisk skiftet form to gange: oprindeligt en enkelt
@@ -247,6 +249,14 @@ Permissions: `dagsplan_view` (læse) / `dagsplan_edit` (redigere) for alle fire 
 - Permission: `manage_employee_supplements`
 
 Se `PAYROLL_RULES.md` og `CODEREF.md` for hvordan tillægget slår igennem i selve lønberegningen.
+
+### `applied_permission_grants` (Engangstildeling af rettigheder, 2026-09-30)
+| Felt | Type | Beskrivelse |
+|------|------|-------------|
+| key | TEXT PK | Navnet på en automatisk rettighedstildeling (fx `edit_activities`) |
+| applied_at | DATETIME | Hvornår tildelingen blev kørt |
+
+Bruges af `_grant_permissions_once()` i `session.py`, så en rettighed kun tildeles eksisterende roller én gang – ikke igen ved hver serverstart.
 
 ---
 

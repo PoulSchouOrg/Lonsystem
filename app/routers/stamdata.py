@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from auth import log_action, require_permission
+from auth import get_current_user, log_action, require_permission
 from database.models import (
     AppUser, Employee, DispatcherGroup, Vehicle,
     MasterAgreementType, MasterAgreementKind, MasterOvertimeRate,
@@ -886,7 +886,9 @@ class HolidayBody(BaseModel):
 @router.get("/holidays")
 def list_holidays(
     year: Optional[int] = None,
-    current_user: AppUser = Depends(_access),
+    # Alle indloggede skal kunne SE helligdagene (markering i aktivitetskalender,
+    # vagtplan m.fl.) – kun oprettelse/sletning/generering kræver rettigheder.
+    current_user: AppUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     from datetime import date as _date

@@ -10,7 +10,7 @@ from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session, object_session, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
-from auth import get_current_user, log_action, require_permission, user_has_permission
+from auth import get_current_user, log_action, require_any_permission, require_permission, user_has_permission
 from calculators.baseline_updater import update_baseline_from_activity, is_auto_approval_enabled
 from calculators.dagsplan_helpers import effective_vehicle_for_employee
 from calculators.pay_period import get_or_create_period_for_date, is_even_week
@@ -32,6 +32,8 @@ from database.session import get_db
 router = APIRouter(prefix="/api/activities", tags=["activities"])
 
 _toggle_springer_access = require_permission("toggle_springer")
+# Aktiviteter vises i Aktivitetsoversigten (view_calendar) og i Vagtplanen (vagtplan_view).
+_view_activities_access = require_any_permission("view_calendar", "vagtplan_view")
 
 
 class SpringerFlagUpdate(BaseModel):
@@ -78,14 +80,34 @@ def _months_between(d1: date, d2: date) -> int:
 
 
 def _has_vagtplan_edit_access(db: Session, current_user: AppUser, emp: Employee) -> bool:
-    """Kun relevant når en aktivitet oprettes med source='vagtplan' (fra Vagtplan-griddet).
-    Almindelig oprettelse/redigering fra Aktivitetsoversigten er upåvirket – der er i dag
-    ingen rolle-baseret restriktion på selve /api/activities uden for dette."""
+    """Redigeringsret til en medarbejders linje i Vagtplanen. Bruges ved oprettelse med
+    source='vagtplan' og som undtagelse i _require_activity_permission. Øvrig
+    oprettelse/redigering kræver edit_activities / approve_activities."""
     if user_has_permission(db, current_user, "vagtplan_edit_all"):
         return True
     if user_has_permission(db, current_user, "vagtplan_edit_own"):
         return bool(emp.initials) and emp.initials.strip().lower() == current_user.initials.strip().lower()
     return False
+
+
+def _has_activity_permission(db: Session, current_user: AppUser, perm: str) -> bool:
+    """approve_activities / edit_activities – samlet ét sted (også så testene kan
+    slå tjekket fra, se tests/conftest.py)."""
+    return user_has_permission(db, current_user, perm)
+
+
+def _require_activity_permission(db: Session, current_user: AppUser, a: Activity, perm: str) -> None:
+    """Håndhæver rettigheden (approve_activities / edit_activities) i backend – før
+    2026-09-30 krævede disse endpoints kun login. Undtagelse: en aktivitet oprettet
+    fra Vagtplanen (source='vagtplan') må også ændres/fjernes af en bruger med
+    redigeringsret til medarbejderens linje i Vagtplan, så Vagtplanen fortsat virker
+    for roller uden de generelle aktivitetsrettigheder."""
+    if _has_activity_permission(db, current_user, perm):
+        return
+    if a.source == ActivitySource.vagtplan and a.employee and _has_vagtplan_edit_access(db, current_user, a.employee):
+        return
+    raise HTTPException(403, "Ingen adgang – kræver rettigheden '"
+                        + ("Godkend aktiviteter" if perm == "approve_activities" else "Redigér aktiviteter") + "'")
 
 
 @router.get("/absence-types")
@@ -331,13 +353,15 @@ def _forbid_date_in_closed_period(d: date, db: Session) -> PayPeriod:
     return period
 
 
-def _forbid_absence_removal_in_closed_period(a: Activity) -> None:
-    """Fravær i en låst (afsluttet) lønperiode må hverken slettes eller deaktiveres –
-    hverken fra Aktivitetsoversigten eller Vagtplanen."""
-    if a.activity_type != "normal" and a.pay_period and a.pay_period.status == PayPeriodStatus.closed:
+def _forbid_removal_in_closed_period(a: Activity) -> None:
+    """Aktiviteter og fravær i en låst (afsluttet) lønperiode må hverken slettes eller
+    deaktiveres – hverken fra Aktivitetsoversigten eller Vagtplanen. Gjaldt tidligere
+    kun fravær; udvidet til alle typer 2026-09-30."""
+    if a.pay_period and a.pay_period.status == PayPeriodStatus.closed:
+        what = "aktiviteten" if a.activity_type == "normal" else "fravær"
         raise HTTPException(
             400,
-            f"Kan ikke fjerne fravær d. {a.start_time.strftime('%d-%m-%Y')} – lønperioden er låst",
+            f"Kan ikke fjerne {what} d. {a.start_time.strftime('%d-%m-%Y')} – lønperioden er låst",
         )
 
 
@@ -347,7 +371,7 @@ def list_activities(
     employee_id: Optional[int] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
-    current_user: AppUser = Depends(get_current_user),
+    current_user: AppUser = Depends(_view_activities_access),
     db: Session = Depends(get_db),
 ):
     """Return activities either for a pay period (period_start, default = today's period)
@@ -438,7 +462,7 @@ def period_info(period_start: Optional[str] = None,
 
 @router.get("/springer-flags")
 def get_springer_flags(pay_period_id: int,
-                        current_user: AppUser = Depends(get_current_user),
+                        current_user: AppUser = Depends(_view_activities_access),
                         db: Session = Depends(get_db)):
     rows = db.query(EmployeeSpringerFlag).filter(
         EmployeeSpringerFlag.pay_period_id == pay_period_id,
@@ -534,6 +558,8 @@ def create_manual_activity(body: ActivityCreate,
         if not _has_vagtplan_edit_access(db, current_user, emp):
             raise HTTPException(403, "Ingen redigeringsret til Vagtplan for denne medarbejder")
         activity_source = ActivitySource.vagtplan
+    elif not _has_activity_permission(db, current_user, "edit_activities"):
+        raise HTTPException(403, "Ingen adgang – kræver rettigheden 'Redigér aktiviteter'")
 
     activity_type = body.activity_type
 
@@ -631,7 +657,7 @@ def locked_dates(date_from: date, date_to: date,
 
 @router.get("/absence-group/{group_id}", response_model=list[ActivityResponse])
 def get_absence_group(group_id: str,
-                      current_user: AppUser = Depends(get_current_user),
+                      current_user: AppUser = Depends(_view_activities_access),
                       db: Session = Depends(get_db)):
     activities = (
         db.query(Activity)
@@ -664,6 +690,8 @@ def update_absence_group_dates(group_id: str, body: AbsenceGroupDatesUpdate,
 
     if template.source == ActivitySource.vagtplan and not _has_vagtplan_edit_access(db, current_user, employee):
         raise HTTPException(403, "Ingen redigeringsret til Vagtplan for denne medarbejder")
+    if template.source != ActivitySource.vagtplan and not _has_activity_permission(db, current_user, "edit_activities"):
+        raise HTTPException(403, "Ingen adgang – kræver rettigheden 'Redigér aktiviteter'")
 
     date_fn = _all_dates if activity_type in _COUNT_BASED_RANGE_TYPES else _weekday_dates
     new_dates = set(date_fn(body.new_start_date, body.new_end_date))
@@ -751,7 +779,7 @@ def update_absence_group_dates(group_id: str, body: AbsenceGroupDatesUpdate,
 
 @router.get("/{activity_id}", response_model=ActivityResponse)
 def get_activity(activity_id: int,
-                 current_user: AppUser = Depends(get_current_user),
+                 current_user: AppUser = Depends(_view_activities_access),
                  db: Session = Depends(get_db)):
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
@@ -766,6 +794,7 @@ def update_activity(activity_id: int, body: ActivityUpdate,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _require_activity_permission(db, current_user, a, "edit_activities")
     _forbid_change_in_closed_period(a, "gemme ændringer på aktiviteten")
     if body.activity_type and body.activity_type in _BACKEND_ONLY_TYPES:
         raise HTTPException(400, "Denne aktivitetstype tildeles automatisk og kan ikke angives manuelt")
@@ -792,6 +821,14 @@ def update_activity(activity_id: int, body: ActivityUpdate,
         a.original_pause_intervals = a.pause_intervals
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(a, field, value)
+    # Tomme felter (null) skal tømmes – ikke bevare den gamle værdi. Undtagelse:
+    # på en vagt med bil-liste (vehicle_uses) sender detaljevisningen altid et tomt
+    # vognnummer, som betyder "uændret" (vognnummeret kan ikke rettes manuelt dér).
+    for field in ("km_start", "km_end", "vehicle_number"):
+        if field in body.model_fields_set and getattr(body, field) is None:
+            if field == "vehicle_number" and a.vehicle_uses:
+                continue
+            setattr(a, field, None)
     a.updated_by = current_user.initials
     if body.pause_intervals is not None:
         flag_modified(a, "pause_intervals")
@@ -829,14 +866,17 @@ def undo_edit(activity_id: int,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _require_activity_permission(db, current_user, a, "edit_activities")
     _forbid_change_in_closed_period(a, "fortryde tidsændringen")
     if a.original_start_time is None:
         raise HTTPException(400, "Ingen tidsændringer at fortryde")
+    # Den oprindelige dato må ikke ligge i en låst periode – ellers ville
+    # fortrydelsen flytte aktiviteten ind i en periode der allerede er kørt løn på.
+    period = _forbid_date_in_closed_period(a.original_start_time.date(), db)
     a.start_time = a.original_start_time
     a.end_time = a.original_end_time
     a.original_start_time = None
     a.original_end_time = None
-    period = get_or_create_period_for_date(a.start_time.date(), db)
     a.pay_period_id = period.id
     db.commit()
     db.refresh(a)
@@ -854,6 +894,7 @@ def undo_split(activity_id: int,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _require_activity_permission(db, current_user, a, "edit_activities")
     # Find originalen (forælderen) hvis der klikkes på en del
     parent = a if a.parent_activity_id is None else (
         db.query(Activity).filter(Activity.id == a.parent_activity_id).first()
@@ -882,6 +923,7 @@ def approve_activity(activity_id: int, body: ActivityApprove,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _require_activity_permission(db, current_user, a, "approve_activities")
     if a.status == ActivityStatus.deactivated:
         raise HTTPException(400, "Kan ikke godkende en deaktiveret aktivitet")
     dur = _duration_minutes(a)
@@ -915,11 +957,16 @@ def bulk_auto_approve(
     from datetime import datetime as _dt
     from calculators.auto_approval import should_auto_approve
 
+    if not _has_activity_permission(db, current_user, "approve_activities"):
+        raise HTTPException(403, "Ingen adgang – kræver rettigheden 'Godkend aktiviteter'")
     if not is_auto_approval_enabled(db):
         raise HTTPException(400, "Automatisk godkendelse er slået fra i systemindstillinger")
 
     start_date = _date.fromisoformat(period_start) if period_start else _date.today()
     period = get_or_create_period_for_date(start_date, db)
+    # Aktiviteter i en låst periode må ikke ændres – heller ikke auto-godkendes.
+    if period.status == PayPeriodStatus.closed:
+        return {"approved": 0, "flagged": 0}
 
     pending = (
         db.query(Activity)
@@ -961,7 +1008,8 @@ def deactivate_activity(activity_id: int, body: ActivityDeactivate,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
-    _forbid_absence_removal_in_closed_period(a)
+    _require_activity_permission(db, current_user, a, "approve_activities")
+    _forbid_removal_in_closed_period(a)
     a.status = ActivityStatus.deactivated
     a.deactivated_by = current_user.initials
     a.approved_at = datetime.utcnow()
@@ -981,6 +1029,9 @@ def hide_from_vagtplan(activity_id: int, body: VagtplanHideBody,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    if not _has_vagtplan_edit_access(db, current_user, a.employee):
+        raise HTTPException(403, "Ingen redigeringsret til Vagtplan for denne medarbejder")
+    _forbid_change_in_closed_period(a, "skjule/vise aktiviteten i Vagtplan")
     a.hidden_from_vagtplan = body.hidden
     log_action(db, current_user, "hide_from_vagtplan", "activity", a.id,
                f"{'Skjult' if body.hidden else 'Vist'} i Vagtplan for {a.employee.name}")
@@ -1001,7 +1052,8 @@ def delete_activity(activity_id: int,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
-    _forbid_absence_removal_in_closed_period(a)
+    _require_activity_permission(db, current_user, a, "approve_activities")
+    _forbid_removal_in_closed_period(a)
     if a.activity_type == "normal" and a.source != ActivitySource.manual:
         raise HTTPException(400, "Kun manuelt oprettede aktiviteter med normal tid kan slettes helt")
     if a.split_children:
@@ -1028,6 +1080,7 @@ def correct_segment(
     )
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _require_activity_permission(db, current_user, a, "edit_activities")
     _forbid_change_in_closed_period(a, "rette segmentet")
 
     segments = [list(seg) for seg in (a.segments or [])]
@@ -1094,6 +1147,7 @@ def correct_all_segments(
     )
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _require_activity_permission(db, current_user, a, "edit_activities")
     _forbid_change_in_closed_period(a, "rette segmenterne")
 
     new_segments, corrected_count = _correct_all_segments_list(a.segments or [])
@@ -1133,6 +1187,7 @@ def resize_segment(
     )
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _require_activity_permission(db, current_user, a, "edit_activities")
     _forbid_change_in_closed_period(a, "ændre segmentets længde")
 
     segments = [list(seg) for seg in (a.segments or [])]
@@ -1197,6 +1252,7 @@ def reopen_activity(activity_id: int,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _require_activity_permission(db, current_user, a, "approve_activities")
     # Hverken aktiviteter eller fravær i en låst lønperiode må genåbnes –
     # hverken fra Aktivitetsoversigten eller Vagtplanen.
     _forbid_change_in_closed_period(a, "genåbne aktiviteten")
@@ -1222,6 +1278,7 @@ def split_activity(activity_id: int, body: ActivitySplit,
     a = db.query(Activity).filter(Activity.id == activity_id).first()
     if not a:
         raise HTTPException(404, "Aktivitet ikke fundet")
+    _require_activity_permission(db, current_user, a, "edit_activities")
     _forbid_change_in_closed_period(a, "splitte aktiviteten")
     if not (a.start_time < body.split_at < a.end_time):
         raise HTTPException(400, "Splitpunkt skal ligge mellem start- og sluttid")
@@ -1240,14 +1297,17 @@ def split_activity(activity_id: int, body: ActivitySplit,
         if p_end > body.split_at:
             pauses2.append([max(p_start, body.split_at).isoformat(), p_end.isoformat()])
 
-    # Fordel hændelsessegmenter ligeså
+    # Fordel hændelsessegmenter ligeså. Et segment rettet med "Ret til andet
+    # arbejde" har et 4. element (den oprindelige type) – det følger med over i
+    # begge dele, så "Gendan" stadig virker efter split.
     segs1, segs2 = [], []
-    for s, e, name in (a.segments or []):
-        s_start, s_end = datetime.fromisoformat(s), datetime.fromisoformat(e)
+    for seg in (a.segments or []):
+        s_start, s_end = datetime.fromisoformat(seg[0]), datetime.fromisoformat(seg[1])
+        rest = list(seg[2:])
         if s_start < body.split_at:
-            segs1.append([s_start.isoformat(), min(s_end, body.split_at).isoformat(), name])
+            segs1.append([s_start.isoformat(), min(s_end, body.split_at).isoformat(), *rest])
         if s_end > body.split_at:
-            segs2.append([max(s_start, body.split_at).isoformat(), s_end.isoformat(), name])
+            segs2.append([max(s_start, body.split_at).isoformat(), s_end.isoformat(), *rest])
 
     # Fælles felter kopieres til begge dele
     common = dict(

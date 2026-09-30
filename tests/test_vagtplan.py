@@ -150,6 +150,9 @@ def test_hide_from_vagtplan_sets_flag_without_deleting_row(db, employee):
     from routers.activities import hide_from_vagtplan
     from database.schemas import VagtplanHideBody
     from calculators.pay_period import get_or_create_period_for_date
+    from database.models import Role
+    # Kræver redigeringsret i Vagtplanen (håndhævet i backend siden 2026-09-30)
+    db.add(Role(name="admin", display_name="Administrator", is_system=True, permissions=[]))
     period = get_or_create_period_for_date(datetime(2026, 1, 5).date(), db)
     a = Activity(employee_id=employee.id, pay_period_id=period.id, source=ActivitySource.vagtplan,
                  activity_type="ferie", start_time=datetime(2026, 1, 5, 6, 0),

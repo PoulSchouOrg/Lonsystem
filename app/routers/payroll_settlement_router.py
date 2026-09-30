@@ -158,6 +158,32 @@ def _aggregate_days(days: list) -> list:
     return result
 
 
+def settlement_total_kr(calc: dict, days: Optional[list] = None) -> Decimal:
+    """Medarbejderens samlede løn for perioden, som vist i Lønafregning – og (siden
+    2026-09-30) også som 'I alt' i Lønkørsel-fanen, så de to altid stemmer.
+
+    = total_kr fra _calculate_employee (normaltid, overtid, SH-tillæg, salt,
+    SH-betaling kode 4/63) + springertillæg + overnatning + DOB-overnatning + alle
+    fraværstyper med et beregnet beløb (sygdom, §56 syg, sygdom u. 8 uger, barn
+    1.sygedag, graviditetsbetinget sygdom, barsel, skole/kursus, feriefri, ferie,
+    afspadsering – bekræftet af bruger 2026-08-25: "fravær skal ... tælle med i
+    totalen"). Overnatning/DOB tilføjet 2026-09-21."""
+    if days is None:
+        days = _aggregate_days(calc["days"])
+    springer_kr = (
+        Decimal(str(calc["normal_hours"])) * Decimal(str(calc["springer_rate"]))
+        if calc["springer_enabled"] else Decimal("0")
+    )
+    absence_kr_total = sum(
+        (Decimal(str(d["absence_kr"])) for d in days if d.get("absence_kr") is not None),
+        Decimal("0"),
+    )
+    return (
+        Decimal(str(calc["total_kr"])) + springer_kr + absence_kr_total
+        + Decimal(str(calc["overnight_kr"])) + Decimal(str(calc["dob_overnight_kr"]))
+    )
+
+
 def _employee_settlement_data(emp, start: date, end: date, db: Session) -> dict:
     """Headline-info (satser vist separat) + periodetotal for én medarbejder,
     oven på den fælles _calculate_employee()-beregning (samme datakilde som Lønkørsel)."""
@@ -175,21 +201,7 @@ def _employee_settlement_data(emp, start: date, end: date, db: Session) -> dict:
     dob_overnight_kr = Decimal(str(calc["dob_overnight_kr"]))
 
     days = _aggregate_days(calc["days"])
-    # Alle fraværstyper med et beregnet beløb (sygdom, §56 syg, sygdom u. 8 uger,
-    # barn 1.sygedag, graviditetsbetinget sygdom, barsel, skole/kursus, ferie,
-    # afspadsering) tæller nu med i medarbejderens samlede løn – bekræftet af
-    # bruger 2026-08-25 ("fravær skal ... tælle med i totalen").
-    absence_kr_total = sum(
-        (Decimal(str(d["absence_kr"])) for d in days if d.get("absence_kr") is not None),
-        Decimal("0"),
-    )
-    # Overnatnings-/DOB-overnatningstillæg manglede tidligere helt i Lønafregningens
-    # total – 'Total sum for denne periode' viste derfor ikke den fulde løn, når en
-    # medarbejder havde overnatninger (opdaget af bruger 2026-09-21). Rettet ved at
-    # lægge dem oveni total_kr, samme princip som springer_kr/absence_kr_total.
-    total_kr_with_extras = (
-        Decimal(str(calc["total_kr"])) + springer_kr + absence_kr_total + overnight_kr + dob_overnight_kr
-    )
+    total_kr_with_extras = settlement_total_kr(calc, days)
 
     return {
         "employee_id": calc["employee_id"],

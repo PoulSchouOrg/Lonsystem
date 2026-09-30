@@ -411,6 +411,9 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
         "sh_kode8": Decimal("0"), "sh_kode9": Decimal("0"),
         "sh_fuldloennet": Decimal("0"), "sh_timeloennet": Decimal("0"),
         "afspadsering": Decimal("0"),
+        # Ferie: kun til visning i Lønkørsel-fanen (Ferie-linjen, så linjerne summerer
+        # til 'I alt' som i Lønafregning) – indgår IKKE i Danløn-CSV'en.
+        "ferie": Decimal("0"),
         "sygdom": Decimal("0"),
         "paragraf_56_syg": Decimal("0"),
         "barn_1sygedag_u_loen": Decimal("0"),
@@ -528,6 +531,7 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
                         absence_kr = dur * hourly_rate
                     elif act.activity_type == "ferie":
                         dur = Decimal(str((act.end_time - act.start_time).total_seconds())) / 3600
+                        totals["ferie"] += dur
                         absence_hours = dur
                         absence_kr = dur * hourly_rate
                     elif act.activity_type in ("sygdom", "barn_1sygedag", "graviditetsbetinget_sygdom"):
@@ -826,6 +830,7 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
         "springer_rate":      float(springer_rate),
         "springer_enabled":   springer_enabled,
         "afspadsering_hours":   float(_round2(totals["afspadsering"])),
+        "ferie_hours":          float(_round2(totals["ferie"])),
         "sygdom_hours":         float(_round2(totals["sygdom"])),
         "paragraf_56_syg_hours":  float(_round2(totals["paragraf_56_syg"])),
         "barn_1sygedag_u_loen_hours": float(_round2(totals["barn_1sygedag_u_loen"])),
@@ -867,6 +872,11 @@ def payroll_preview(period_start: Optional[str] = None,
     period = _resolve_period(period_start, db)
     employees = _active_employees(db)
     results = [_calculate_employee(e, period.start_date, period.end_date, db) for e in employees]
+    # 'I alt' pr. medarbejder regnes præcis som i Lønafregning (bekræftet af
+    # bruger 2026-09-30) – lazy import pga. cirkulær import.
+    from routers.payroll_settlement_router import settlement_total_kr
+    for r in results:
+        r["grand_total_kr"] = float(settlement_total_kr(r))
     return {
         "period_start": period.start_date.isoformat(),
         "period_end": period.end_date.isoformat(),

@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, require_permission
+from auth import get_current_user, require_any_permission, require_permission, user_has_any_permission
 from calculators.rates_loader import (
     load_agreement_types_from_db,
     seniority_variant_exists_from_db,
@@ -117,15 +117,39 @@ def _to_response(emp: Employee, db) -> EmployeeResponse:
     )
 
 
+# Medarbejderlisten (navne, grupper, skema m.m.) bruges af alle skærmbilleder der viser
+# medarbejdere – men kontakt-/løn-/kortoplysninger kun med 'Se medarbejdere'.
+_employee_list_access = require_any_permission(
+    "view_employees", "manage_employees", "view_calendar", "edit_activities", "approve_activities",
+    "vagtplan_view", "dagsplan_view", "payroll", "payroll_settlement_view", "absence_overview",
+    "manage_employee_supplements", "stamdata",
+)
+_PRIVATE_EMPLOYEE_FIELDS = (
+    "tachograph_card_number", "address", "postal_code", "email", "phone", "mobile",
+    "hourly_rate", "cvr_number",
+)
+
+
+def _visible_response(emp: Employee, db, current_user: AppUser) -> EmployeeResponse:
+    """Fuld stamdata kun med 'Se medarbejdere'/'Tilføj medarbejdere' – ellers
+    udelades kontakt-, løn- og førerkortoplysninger."""
+    resp = _to_response(emp, db)
+    if not user_has_any_permission(db, current_user, "view_employees", "manage_employees"):
+        for field in _PRIVATE_EMPLOYEE_FIELDS:
+            setattr(resp, field, None)
+    return resp
+
+
 @router.get("", response_model=list[EmployeeResponse])
 def list_employees(active_only: bool = True,
-                   current_user: AppUser = Depends(get_current_user),
+                   current_user: AppUser = Depends(_employee_list_access),
                    db: Session = Depends(get_db)):
     _sweep_expired_paragraf_56(db)
     q = db.query(Employee)
     if active_only:
         q = q.filter(Employee.active == True)
-    return [_to_response(e, db) for e in q.order_by(Employee.last_name, Employee.first_name).all()]
+    return [_visible_response(e, db, current_user)
+            for e in q.order_by(Employee.last_name, Employee.first_name).all()]
 
 
 @router.get("/agreement-types")
@@ -215,7 +239,7 @@ def create_employee(body: EmployeeCreate,
 
 
 @router.get("/anciennitet-alerts", response_model=list[AnciennitetsAlert])
-def anciennitet_alerts(current_user: AppUser = Depends(get_current_user),
+def anciennitet_alerts(current_user: AppUser = Depends(require_permission("anciennitet_alert")),
                        db: Session = Depends(get_db)):
     """
     Medarbejdere der har opnået 9 måneders anciennitet, men hvor
@@ -245,7 +269,7 @@ def anciennitet_alerts(current_user: AppUser = Depends(get_current_user),
 
 @router.post("/{employee_id}/dismiss-anciennitet", status_code=204)
 def dismiss_anciennitet(employee_id: int,
-                        current_user: AppUser = Depends(get_current_user),
+                        current_user: AppUser = Depends(require_permission("anciennitet_alert")),
                         db: Session = Depends(get_db)):
     """Marker anciennitetsadvarsel som afvist for denne medarbejder."""
     emp = db.query(Employee).filter(Employee.id == employee_id).first()
@@ -256,7 +280,7 @@ def dismiss_anciennitet(employee_id: int,
 
 
 @router.get("/paragraf56-alerts", response_model=Paragraf56AlertsResponse)
-def paragraf56_alerts(current_user: AppUser = Depends(get_current_user),
+def paragraf56_alerts(current_user: AppUser = Depends(require_permission("paragraf_56_alert")),
                       db: Session = Depends(get_db)):
     """
     §56-advarsler for den aktuelle bruger: 'upcoming' (slutdato inden for 30 dage,
@@ -294,7 +318,7 @@ def paragraf56_alerts(current_user: AppUser = Depends(get_current_user),
 
 @router.post("/{employee_id}/dismiss-paragraf56-alert", status_code=204)
 def dismiss_paragraf56_alert(employee_id: int, body: Paragraf56AlertDismiss,
-                             current_user: AppUser = Depends(get_current_user),
+                             current_user: AppUser = Depends(require_permission("paragraf_56_alert")),
                              db: Session = Depends(get_db)):
     """Marker en §56-advarsel som afvist for DEN AKTUELLE BRUGER (ikke globalt)."""
     if body.alert_type not in ("upcoming", "expired"):
@@ -313,12 +337,18 @@ def dismiss_paragraf56_alert(employee_id: int, body: Paragraf56AlertDismiss,
 
 @router.get("/{employee_id}", response_model=EmployeeResponse)
 def get_employee(employee_id: int,
-                 current_user: AppUser = Depends(get_current_user),
+                 current_user: AppUser = Depends(_employee_list_access),
                  db: Session = Depends(get_db)):
     emp = db.query(Employee).filter(Employee.id == employee_id).first()
     if not emp:
         raise HTTPException(404, "Medarbejder ikke fundet")
-    return _to_response(emp, db)
+    return _visible_response(emp, db, current_user)
+
+
+_CLEARABLE_EMPLOYEE_FIELDS = (
+    "tachograph_card_number", "initials", "address", "postal_code",
+    "email", "phone", "mobile",
+)
 
 
 @router.patch("/{employee_id}", response_model=EmployeeResponse)
@@ -350,6 +380,11 @@ def update_employee(employee_id: int, body: EmployeeUpdate,
         if field_name == "work_schedule":
             value = body.work_schedule.model_dump()
         setattr(emp, field_name, value)
+    # Valgfri tekstfelter der sendes som tomme (null) skal tømmes – ikke bevare den
+    # gamle værdi, som exclude_none ovenfor ellers ville gøre.
+    for field_name in _CLEARABLE_EMPLOYEE_FIELDS:
+        if field_name in body.model_fields_set and getattr(body, field_name) is None:
+            setattr(emp, field_name, None)
     if "dispatcher_group_id" in body.model_fields_set:
         emp.dispatcher_group = _resolve_dispatcher_group(db, body.dispatcher_group_id)
     if "fast_bil_vehicle_id" in body.model_fields_set:

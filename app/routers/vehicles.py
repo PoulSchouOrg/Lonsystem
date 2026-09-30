@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, require_permission
+from auth import require_any_permission, require_permission
 from database.session import get_db
 from database.models import Activity, AppUser, DispatcherGroup, Vehicle
 from database.schemas import VehicleCreate, VehicleUpdate, VehicleResponse
@@ -17,8 +17,16 @@ def _resolve_dispatcher_group_id(db: Session, group_id):
     return group_id
 
 
+# Vognlisten bruges af flere skærmbilleder (vognnr.-felter i aktiviteter, fast bil/
+# fraværsvogn på medarbejderen, Dagsplan, Vagtplan) – ikke kun Vognpark-siden.
+_vehicle_list_access = require_any_permission(
+    "view_vehicles", "manage_vehicles", "view_calendar", "edit_activities", "vagtplan_view",
+    "dagsplan_view", "view_employees", "manage_employees", "payroll_settlement_view", "stamdata",
+)
+
+
 @router.get("", response_model=list[VehicleResponse])
-def list_vehicles(current_user: AppUser = Depends(get_current_user),
+def list_vehicles(current_user: AppUser = Depends(_vehicle_list_access),
                   db: Session = Depends(get_db)):
     return db.query(Vehicle).order_by(Vehicle.registration_number).all()
 

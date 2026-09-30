@@ -549,6 +549,17 @@ class SystemSettings(Base):
     updated_at = Column(DateTime, nullable=True)
 
 
+class AppliedPermissionGrant(Base):
+    """Husker hvilke opstarts-tildelinger af rettigheder (_ensure_*_permission i
+    session.py) der allerede er kørt på denne database. En tildeling må kun ske
+    ÉN gang – ellers ville en rettighed som en administrator bevidst har fjernet
+    fra en rolle komme tilbage ved næste serverstart."""
+    __tablename__ = "applied_permission_grants"
+
+    key = Column(String, primary_key=True)
+    applied_at = Column(DateTime, server_default=func.now())
+
+
 class EmployeeSupplement(Base):
     __tablename__ = "employee_supplements"
 

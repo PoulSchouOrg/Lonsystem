@@ -22,6 +22,7 @@ ALL_PERMISSIONS = {
     "anciennitet_alert":   "Anciennitetsvarsel",
     "paragraf_56_alert":   "§56-advarsel",
     "approve_activities":  "Godkend aktiviteter",
+    "edit_activities":     "Redigér aktiviteter",
     "auto_approve_manual_activities": "Auto-godkend ved oprettelse",
     "manage_auto_approval": "Slå auto-godkendelse til/fra",
     "view_calendar":       "Se aktivitetskalender",
@@ -77,6 +78,26 @@ def require_permission(perm: str):
         if not user:
             raise HTTPException(status_code=401, detail="Ugyldig session")
         if not _role_has_permission(db, user.role, perm):
+            raise HTTPException(status_code=403, detail="Ingen adgang")
+        return user
+    return checker
+
+
+def user_has_any_permission(db: Session, user: AppUser, *perms: str) -> bool:
+    return any(_role_has_permission(db, user.role, p) for p in perms)
+
+
+def require_any_permission(*perms: str):
+    """Som require_permission, men nøjes med ÉN af de angivne rettigheder – til
+    opslag (fx medarbejder-/vognlisten) som flere skærmbilleder har brug for."""
+    def checker(request: Request, db: Session = Depends(get_db)) -> AppUser:
+        user_id = request.session.get("user_id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Ikke logget ind")
+        user = db.query(AppUser).filter(AppUser.id == user_id, AppUser.active == True).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="Ugyldig session")
+        if not any(_role_has_permission(db, user.role, p) for p in perms):
             raise HTTPException(status_code=403, detail="Ingen adgang")
         return user
     return checker

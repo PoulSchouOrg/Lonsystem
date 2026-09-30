@@ -58,6 +58,7 @@ const PERMISSION_LABELS = {
   anciennitet_alert:   "Anciennitetsvarsel",
   paragraf_56_alert:   "§56-advarsel",
   approve_activities:  "Godkend aktiviteter",
+  edit_activities:     "Redigér aktiviteter",
   auto_approve_manual_activities: "Auto-godkend ved oprettelse",
   manage_auto_approval: "Slå auto-godkendelse til/fra",
   view_calendar:       "Se aktivitetskalender",
@@ -87,7 +88,8 @@ const PERMISSION_DESCRIPTIONS = {
   manage_holidays:     "Kan tilføje, redigere og slette helligdage i kalenderen.",
   anciennitet_alert:   "Ser advarsel når en medarbejders anciennitet nærmer sig en løn-relevant grænse (fx sygdom med løn).",
   paragraf_56_alert:   "Ser advarsel om §56-aftaler der kræver opmærksomhed.",
-  approve_activities:  "Kan godkende, afvise eller genåbne aktiviteter manuelt.",
+  approve_activities:  "Kan godkende, deaktivere/slette og genåbne aktiviteter, samt bruge knappen \"Autogodkend aktiviteter\".",
+  edit_activities:     "Kan oprette aktiviteter/fravær og rette dem (tider, pauser, vognnummer, km, split, ret til andet arbejde) i Aktivitetsoversigten.",
   auto_approve_manual_activities: "Aktiviteter brugeren selv opretter manuelt i aktivitetsoversigten, bliver godkendt automatisk med det samme. Uafhængig af den globale auto-godkendelses-kontakt (Stamdata).",
   manage_auto_approval: "Kan slå den globale auto-godkendelse til/fra i Stamdata. Styrer kun DDD-import og bulk-knappen \"Autogodkend aktiviteter\" (baseret på medarbejderens historiske mønster) – påvirker ikke manuel oprettelse.",
   view_calendar:       "Kan se aktivitetsoversigten/-kalenderen.",
@@ -1024,6 +1026,7 @@ function renderActivitiesTable() {
   body.querySelectorAll("td[data-emp-id]").forEach(td => {
     td.addEventListener("click", e => {
       if (e.target.closest(".time-badge")) return;
+      if (!_hasPerm("edit_activities")) return;
       openManualActivityModal(parseInt(td.dataset.empId), td.dataset.date);
     });
   });
@@ -1078,12 +1081,12 @@ function renderCellActivity(a, role = "full") {
   const autoSuffix = (a.status === "approved" && a.auto_approved) ? `<span class="auto-dot" title="Auto-godkendt"></span>` : "";
   if (role === "start") {
     return `<div class="badge-group">
-      <span class="time-badge ${a.status}${autoCls}" data-id="${a.id}" title="${title}">${k}${formatTime(a.start_time)}${warn}${autoSuffix}${incomplete}${note}</span>
+      <span class="time-badge ${a.status}${autoCls}" data-id="${a.id}" title="${title}">${k}${formatTime(a.start_time)}${warn}${autoSuffix}${incomplete}</span>
     </div>`;
   }
   if (role === "end") {
     return `<div class="badge-group">
-      <span class="time-badge ${a.status}${autoCls}" data-id="${a.id}" title="${title}">${k}${formatTime(a.end_time)}${autoSuffix}${incomplete}${note}</span>
+      <span class="time-badge ${a.status}${autoCls}" data-id="${a.id}" title="${title}">${k}${formatTime(a.end_time)}${autoSuffix}${incomplete}</span>
     </div>`;
   }
   if (role === "piece") {
@@ -1092,7 +1095,6 @@ function renderCellActivity(a, role = "full") {
       <span class="time-badge time-badge-stacked ${a.status}${autoCls}" data-id="${id}" title="${title}">
         <span class="time-line">${k}${formatTime(a.start_time)}${warn}</span>
         <span class="time-line">${formatTime(a.end_time)}${autoSuffix}${incomplete}</span>
-        ${note}
       </span>
     </div>`;
   }
@@ -1119,15 +1121,35 @@ function pct(v) { return v ? parseFloat(v) : 0; }
 function fmtPct(v) { return v.toFixed(2); }
 
 // Fravær i en låst lønperiode må hverken slettes eller deaktiveres (håndhæves også i backend).
-function _absenceRemovalLocked(a) {
-  return !!a && a.period_closed && a.activity_type !== "normal";
+// Aktiviteter og fravær i en låst lønperiode må hverken deaktiveres eller slettes
+// (håndhæves også i backend).
+function _removalLocked(a) {
+  return !!a && a.period_closed;
+}
+
+function _hasPerm(p) {
+  return (state.currentUser?.permissions || []).includes(p);
+}
+
+// Spejler backend (_require_activity_permission): den generelle rettighed, eller en
+// aktivitet oprettet fra Vagtplanen for en bruger med redigeringsret i Vagtplanen
+// (backend afgør den endelige ret til netop den medarbejders linje).
+function _canActivity(a, perm) {
+  if (_hasPerm(perm)) return true;
+  return !!a && a.source === "vagtplan" && (_hasPerm("vagtplan_edit_all") || _hasPerm("vagtplan_edit_own"));
+}
+
+// Kan aktiviteten ikke redigeres (låst periode eller mangler 'Redigér aktiviteter')?
+function _editLocked(a) {
+  return !a || a.period_closed || !_canActivity(a, "edit_activities");
 }
 
 function renderActionBtns(a) {
   const btns = [];
+  if (!_canActivity(a, "approve_activities")) return "";
   if (a.status === "pending") {
     btns.push(`<button class="btn btn-success btn-sm" onclick="quickApprove(${a.id})">✓ Godkend</button>`);
-    if (!_absenceRemovalLocked(a)) btns.push(`<button class="btn btn-danger btn-sm" onclick="quickDeactivate(${a.id})">✗</button>`);
+    if (!_removalLocked(a)) btns.push(`<button class="btn btn-danger btn-sm" onclick="quickDeactivate(${a.id})">✗</button>`);
   } else if (!a.period_closed) {
     // Aktiviteter og fravær i en låst lønperiode må ikke genåbnes (håndhæves også i backend).
     btns.push(`<button class="btn btn-secondary btn-sm" onclick="quickReopen(${a.id})">↩ Genåbn</button>`);
@@ -1257,7 +1279,7 @@ async function openActivityDetail(id) {
   }
 
   document.getElementById("modal-activity-body").innerHTML = `
-    ${absencePeriod && !a.period_closed ? `
+    ${absencePeriod && !_editLocked(a) ? `
     <div class="form-group" id="absence-period-section" style="margin-bottom:14px;padding:10px;background:var(--bg);border-radius:var(--radius)">
       <label style="font-weight:500;font-size:12px;text-transform:uppercase;color:var(--text-light);margin-bottom:6px;display:block">Fraværsperiode</label>
       <div class="form-row" style="margin-bottom:8px">
@@ -1368,12 +1390,12 @@ async function openActivityDetail(id) {
         ${a.pause_intervals.map((p, i) => `
           <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border,#e5e7eb)">
             <span style="flex:1">${formatTime(p[0])} – ${formatTime(p[1])}</span>
-            ${a.period_closed ? "" : `<button class="act-pause-edit-btn" data-idx="${i}" data-id="${a.id}" style="font-size:11px;padding:2px 7px;cursor:pointer">Ret</button>
+            ${_editLocked(a) ? "" : `<button class="act-pause-edit-btn" data-idx="${i}" data-id="${a.id}" style="font-size:11px;padding:2px 7px;cursor:pointer">Ret</button>
             <button class="act-pause-del-btn" data-idx="${i}" data-id="${a.id}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;line-height:1;padding:0 2px">&times;</button>`}
           </div>
         `).join("")}
       </div>` : ""}
-      ${a.status === "pending" && !a.period_closed ? `
+      ${a.status === "pending" && !_editLocked(a) ? `
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
         <button type="button" class="btn btn-secondary act-pause-add-btn" data-id="${a.id}" style="font-size:13px;padding:5px 14px">+ Tilføj pause</button>
         <button type="button" class="btn btn-secondary act-pause-suggest-btn" data-id="${a.id}" data-start="12:00" data-end="12:30" style="font-size:13px;padding:5px 14px">12:00–12:30</button>
@@ -1409,21 +1431,25 @@ async function openActivityDetail(id) {
   // Låst lønperiode: ingen ændringer overhovedet – kun Godkend (for evt. afventende)
   // og Luk vises. Håndhæves også i backend.
   const locked = a.period_closed;
+  // Rettigheder (håndhæves også i backend): 'Redigér aktiviteter' styrer ret/fortryd/
+  // split, 'Godkend aktiviteter' styrer godkend/deaktiver/genåbn.
+  const editLocked = _editLocked(a);
+  const canApprove = _canActivity(a, "approve_activities");
   // Fortryd-knapper
-  if (!locked && a.is_edited) {
+  if (!editLocked && a.is_edited) {
     footer.innerHTML += `<button class="btn btn-warning" onclick="undoEdit()" title="Gendan de oprindelige tider">↩ Fortryd tidsændring</button>`;
   }
-  if (!locked && (a.has_split_children || a.parent_activity_id)) {
+  if (!editLocked && (a.has_split_children || a.parent_activity_id)) {
     footer.innerHTML += `<button class="btn btn-warning" onclick="undoSplit()" title="Slet delene og gendan den originale aktivitet">↩ Fortryd split</button>`;
   }
-  if (!locked) footer.innerHTML += `<button class="btn btn-secondary" onclick="saveActivityTimes()">💾 Gem ændringer</button>`;
+  if (!editLocked) footer.innerHTML += `<button class="btn btn-secondary" onclick="saveActivityTimes()">💾 Gem ændringer</button>`;
   if (a.status === "pending") {
-    if (!locked) footer.innerHTML += `<button class="btn btn-warning" onclick="openSplitModal()">✂️ Split</button>`;
-    if (!_absenceRemovalLocked(a)) footer.innerHTML += `<button class="btn btn-danger" onclick="modalDeactivate()">✗ Deaktiver</button>`;
-    footer.innerHTML += `<button class="btn btn-success" onclick="openApproveModal()">✓ Godkend</button>`;
+    if (!editLocked) footer.innerHTML += `<button class="btn btn-warning" onclick="openSplitModal()">✂️ Split</button>`;
+    if (canApprove && !_removalLocked(a)) footer.innerHTML += `<button class="btn btn-danger" onclick="modalDeactivate()">✗ Deaktiver</button>`;
+    if (canApprove) footer.innerHTML += `<button class="btn btn-success" onclick="openApproveModal()">✓ Godkend</button>`;
   } else {
-    if (!locked && a.status === "deactivated") footer.innerHTML += `<button class="btn btn-warning" onclick="openSplitModal()">✂️ Split</button>`;
-    if (!locked) footer.innerHTML += `<button class="btn btn-secondary" onclick="modalReopen()">↩ Genåbn</button>`;
+    if (!editLocked && a.status === "deactivated") footer.innerHTML += `<button class="btn btn-warning" onclick="openSplitModal()">✂️ Split</button>`;
+    if (!locked && canApprove) footer.innerHTML += `<button class="btn btn-secondary" onclick="modalReopen()">↩ Genåbn</button>`;
   }
   footer.innerHTML += `<button class="btn btn-secondary" onclick="closeModal('modal-activity')">Luk</button>`;
 
@@ -1466,8 +1492,9 @@ const SEGMENT_ICONS = {
 
 function renderSegmentTable(a) {
   if (!a.segments || a.segments.length === 0) return "";
-  // Låst lønperiode: ingen ret/tilpas/gendan/split-knapper (håndhæves også i backend).
-  const locked = a.period_closed;
+  // Låst lønperiode eller ingen 'Redigér aktiviteter': ingen ret/tilpas/gendan/split-
+  // knapper (håndhæves også i backend).
+  const locked = _editLocked(a);
   const hasCorrectable = !locked && a.segments.some(seg => seg[2] === "rest" && seg.length < 4);
   // Saksen vises ikke på første linje (split ved aktivitetens start giver ingen mening)
   const rows = a.segments.map((seg, idx) => {
@@ -1830,7 +1857,7 @@ async function confirmApprove() {
     const saltVal    = document.getElementById("edit-salt")?.checked ?? false;
     const dobCb      = document.getElementById("edit-dob");
     // I en låst lønperiode kan aktiviteten ikke rettes – spring gem-trinnet over.
-    if (vehicleNum !== undefined && !a?.period_closed) {
+    if (vehicleNum !== undefined && !_editLocked(a)) {
       const patchBody = {
         vehicle_number: vehicleNum || null,
         km_start: kmStartVal !== "" && kmStartVal != null ? parseInt(kmStartVal) : null,
@@ -1857,7 +1884,7 @@ function openDeactivateModal() {
   document.getElementById("deactivate-comment").value = "";
   document.getElementById("deactivate-hide-vagtplan").checked = false;
   const a = _findLoadedActivity(state.selectedActivityId);
-  if (_absenceRemovalLocked(a)) { toast("Fravær i en låst lønperiode kan ikke fjernes", "error"); return; }
+  if (_removalLocked(a)) { toast("Aktiviteter og fravær i en låst lønperiode kan ikke fjernes", "error"); return; }
   const canDeleteEntirely = a && (a.activity_type !== "normal" || a.is_manual);
   document.getElementById("deactivate-hide-vagtplan-group").style.display = canDeleteEntirely ? "" : "none";
   if (canDeleteEntirely) {
@@ -4142,16 +4169,8 @@ function renderPayrollPreview(data) {
   for (const emp of data.employees) {
     if (emp.activity_count === 0 && emp.afspadsering_hours === 0) continue;
     any = true;
-    const grandTotalKr = emp.total_kr
-      + (emp.overnight_kr || 0)
-      + (emp.dob_overnight_kr || 0)
-      + (emp.springer_enabled ? emp.normal_hours * emp.springer_rate : 0)
-      + (emp.sygdom_hours || 0) * emp.hourly_rate
-      + (emp.paragraf_56_syg_hours || 0) * emp.dagpenge_sats
-      + (emp.barn_1sygedag_u_loen_hours || 0) * emp.dagpenge_sats
-      + (emp.feriefri_hours || 0) * emp.hourly_rate
-      + (emp.barsel_hours || 0) * emp.hourly_rate
-      + (emp.skole_kursus_hours || 0) * emp.hourly_rate;
+    // Regnes i backend præcis som Lønafregningens total (inkl. ferie og afspadsering).
+    const grandTotalKr = emp.grand_total_kr;
     const el = document.createElement("div");
     el.className = "payroll-employee";
     el.innerHTML = `
@@ -4183,7 +4202,8 @@ function renderPayrollPreview(data) {
         ${payrollRowSalt("Salttillæg", emp.salt_hours, emp.salt_rate, emp.salt_kr)}
         ${payrollRowOvernight("Overnatning", emp.overnight_count, emp.overnight_rate, emp.overnight_kr)}
         ${payrollRowOvernight("DOB Overnatning", emp.dob_overnight_count, emp.dob_overnight_rate, emp.dob_overnight_kr)}
-        ${payrollRow("Afspadsering", emp.afspadsering_hours)}
+        ${payrollRow("Ferie", emp.ferie_hours, emp.hourly_rate)}
+        ${payrollRow("Afspadsering", emp.afspadsering_hours, emp.hourly_rate)}
         ${payrollRow("Sygdom med løn", emp.sygdom_hours, emp.hourly_rate)}
         ${payrollRow("§56 syg", emp.paragraf_56_syg_hours, emp.dagpenge_sats)}
         ${payrollRow("Barn 1.sygedag", emp.barn_1sygedag_u_loen_hours, emp.dagpenge_sats)}
@@ -4785,6 +4805,11 @@ function applyRoleVisibility() {
   const perms = state.currentUser?.permissions || [];
   document.querySelectorAll("[data-perm-require]").forEach(el => {
     el.style.display = perms.includes(el.dataset.permRequire) ? "" : "none";
+  });
+  // Skjul en menugruppe helt, hvis brugeren ikke har adgang til nogen af dens punkter.
+  document.querySelectorAll(".sidebar-section").forEach(section => {
+    const items = [...section.querySelectorAll(".sidebar-item")];
+    section.style.display = items.some(el => el.style.display !== "none") ? "" : "none";
   });
 }
 
@@ -6412,14 +6437,27 @@ async function loadApp() {
   applyAutoApprovalVisibility();
 
   await loadAbsenceTypes();
-  await setView("activities");
+  await setView(_firstPermittedView());
   await checkAnciennitetsAlerts();
   await checkParagraf56Alerts();
 }
 
+// Første menupunkt brugeren har adgang til – Aktiviteter hvis 'Se aktivitetskalender',
+// ellers det første synlige punkt (rettighederne håndhæves også i backend).
+function _firstPermittedView() {
+  if (_hasPerm("view_calendar")) return "activities";
+  for (const el of document.querySelectorAll(".sidebar-item[data-view]")) {
+    const section = el.closest(".sidebar-section[data-perm-require]");
+    if (section && !_hasPerm(section.dataset.permRequire)) continue;
+    if (el.dataset.permRequire && !_hasPerm(el.dataset.permRequire)) continue;
+    if (el.dataset.view !== "activities") return el.dataset.view;
+  }
+  return "activities";
+}
+
 function applyAutoApprovalVisibility() {
   const btn = document.getElementById("btn-auto-approve");
-  if (btn) btn.style.display = state.autoApprovalEnabled ? "" : "none";
+  if (btn) btn.style.display = state.autoApprovalEnabled && _hasPerm("approve_activities") ? "" : "none";
 }
 
 async function init() {

@@ -10,6 +10,24 @@ from database.models import Base, Employee, Activity, ActivitySource, ActivitySt
 from calculators.pay_period import get_or_create_period_for_date
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "real_activity_permissions: håndhæv approve_activities/edit_activities i testen",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _allow_activity_permissions(request, monkeypatch):
+    """De fleste tests kalder aktivitets-endpoints med en dummy-bruger uden rolle i
+    test-databasen. Rettighedstjekket for approve_activities/edit_activities slås
+    derfor fra som standard – tests af selve tjekket markeres
+    @pytest.mark.real_activity_permissions."""
+    if request.node.get_closest_marker("real_activity_permissions"):
+        return
+    import routers.activities as activities_router
+    monkeypatch.setattr(activities_router, "_has_activity_permission", lambda *a, **k: True)
+
+
 @pytest.fixture
 def db():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})

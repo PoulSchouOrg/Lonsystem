@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, log_action, user_has_permission
+from auth import get_current_user, log_action, require_permission, user_has_permission
 from calculators.pay_period import get_or_create_period_for_date
 from database.models import AppUser, Employee, PayPeriodStatus, VagtplanComment
 from database.schemas import VagtplanCommentCreate, VagtplanCommentResponse
@@ -26,7 +26,7 @@ def list_comments(
     date_from: str,
     date_to: str,
     employee_id: Optional[int] = None,
-    current_user: AppUser = Depends(get_current_user),
+    current_user: AppUser = Depends(require_permission("vagtplan_view")),
     db: Session = Depends(get_db),
 ):
     q = db.query(VagtplanComment).filter(
@@ -88,6 +88,10 @@ def delete_comment(comment_id: int,
     emp = db.query(Employee).filter(Employee.id == comment.employee_id).first()
     if not emp or not _has_edit_access(db, current_user, emp):
         raise HTTPException(403, "Ingen redigeringsret til Vagtplan for denne medarbejder")
+    if get_or_create_period_for_date(comment.date, db).status == PayPeriodStatus.closed:
+        raise HTTPException(
+            400, f"Kan ikke slette kommentar d. {comment.date.strftime('%d-%m-%Y')} – lønperioden er låst"
+        )
     log_action(db, current_user, "delete_vagtplan_comment", "vagtplan_comment", comment.id)
     db.delete(comment)
     db.commit()

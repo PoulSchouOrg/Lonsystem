@@ -77,6 +77,7 @@ def init_db():
     _ensure_employee_supplements_permission()
     _ensure_toggle_springer_permission()
     _ensure_payroll_settlement_permissions()
+    _ensure_edit_activities_permission()
     _ensure_springer_pay_type()
     _ensure_feriefri_fuldloennet_pay_type()
     _ensure_loen_andet_sted_fra_absence_type()
@@ -626,42 +627,47 @@ def _ensure_loen_andet_sted_fra_absence_type():
         db.close()
 
 
-def _ensure_anciennitet_alert_permission():
-    """Tilføjer anciennitet_alert til lonbogholder-rollen (idempotent)."""
-    from database.models import Role
+def _grant_permissions_once(key: str, perms: list[str], role_name: str | None = None,
+                            lonbogholder_only: bool = False):
+    """Tildeler `perms` til rollerne ÉN gang pr. database (husket i
+    applied_permission_grants under `key`). Uden denne spærre blev tildelingen
+    gentaget ved hver serverstart, så en rettighed en administrator bevidst havde
+    fjernet fra en rolle kom tilbage ved næste (natlige) genstart.
+
+    role_name=None → alle roller. lonbogholder_only → kun lonbogholder, og kun hvis
+    den ikke er en systemrolle (samme betingelse som de oprindelige funktioner)."""
+    from database.models import AppliedPermissionGrant, Role
     db = SessionLocal()
     try:
-        role = db.query(Role).filter(Role.name == "lonbogholder").first()
-        if role and not role.is_system:
-            perms = list(role.permissions or [])
-            if "anciennitet_alert" not in perms:
-                perms.append("anciennitet_alert")
-                role.permissions = perms
-                db.commit()
+        if db.query(AppliedPermissionGrant).filter(AppliedPermissionGrant.key == key).first():
+            return
+        q = db.query(Role)
+        if lonbogholder_only:
+            q = q.filter(Role.name == "lonbogholder", Role.is_system == False)  # noqa: E712
+        elif role_name:
+            q = q.filter(Role.name == role_name)
+        for role in q.all():
+            current = list(role.permissions or [])
+            missing = [p for p in perms if p not in current]
+            if missing:
+                role.permissions = current + missing
+        db.add(AppliedPermissionGrant(key=key))
+        db.commit()
     except Exception as e:
         db.rollback()
-        logging.error(f"Fejl ved opdatering af anciennitet_alert-tilladelse: {e}")
+        logging.error(f"Fejl ved tildeling af rettigheder ({key}): {e}")
     finally:
         db.close()
+
+
+def _ensure_anciennitet_alert_permission():
+    """Tilføjer anciennitet_alert til lonbogholder-rollen (kun én gang)."""
+    _grant_permissions_once("anciennitet_alert", ["anciennitet_alert"], lonbogholder_only=True)
 
 
 def _ensure_paragraf_56_alert_permission():
-    """Tilføjer paragraf_56_alert til lonbogholder-rollen (idempotent)."""
-    from database.models import Role
-    db = SessionLocal()
-    try:
-        role = db.query(Role).filter(Role.name == "lonbogholder").first()
-        if role and not role.is_system:
-            perms = list(role.permissions or [])
-            if "paragraf_56_alert" not in perms:
-                perms.append("paragraf_56_alert")
-                role.permissions = perms
-                db.commit()
-    except Exception as e:
-        db.rollback()
-        logging.error(f"Fejl ved opdatering af paragraf_56_alert-tilladelse: {e}")
-    finally:
-        db.close()
+    """Tilføjer paragraf_56_alert til lonbogholder-rollen (kun én gang)."""
+    _grant_permissions_once("paragraf_56_alert", ["paragraf_56_alert"], lonbogholder_only=True)
 
 
 def _migrate_dispatcher_groups():
@@ -758,41 +764,13 @@ def _migrate_dispatcher_group_to_single():
 
 
 def _ensure_manage_baselines_permission():
-    """Tilføjer manage_baselines til admin-rollen (idempotent)."""
-    from database.models import Role
-    db = SessionLocal()
-    try:
-        role = db.query(Role).filter(Role.name == "admin").first()
-        if role:
-            perms = list(role.permissions or [])
-            if "manage_baselines" not in perms:
-                perms.append("manage_baselines")
-                role.permissions = perms
-                db.commit()
-    except Exception as e:
-        db.rollback()
-        logging.error(f"Fejl ved opdatering af manage_baselines-tilladelse: {e}")
-    finally:
-        db.close()
+    """Tilføjer manage_baselines til admin-rollen (kun én gang)."""
+    _grant_permissions_once("manage_baselines", ["manage_baselines"], role_name="admin")
 
 
 def _ensure_manage_auto_approval_permission():
-    """Tilføjer manage_auto_approval til admin-rollen (idempotent)."""
-    from database.models import Role
-    db = SessionLocal()
-    try:
-        role = db.query(Role).filter(Role.name == "admin").first()
-        if role:
-            perms = list(role.permissions or [])
-            if "manage_auto_approval" not in perms:
-                perms.append("manage_auto_approval")
-                role.permissions = perms
-                db.commit()
-    except Exception as e:
-        db.rollback()
-        logging.error(f"Fejl ved opdatering af manage_auto_approval-tilladelse: {e}")
-    finally:
-        db.close()
+    """Tilføjer manage_auto_approval til admin-rollen (kun én gang)."""
+    _grant_permissions_once("manage_auto_approval", ["manage_auto_approval"], role_name="admin")
 
 
 def _ensure_system_settings():
@@ -811,127 +789,39 @@ def _ensure_system_settings():
 
 
 def _ensure_auto_approve_permission():
-    """Tilføjer auto_approve_manual_activities til lonbogholder-rollen (idempotent)."""
-    from database.models import Role
-    db = SessionLocal()
-    try:
-        role = db.query(Role).filter(Role.name == "lonbogholder").first()
-        if role:
-            perms = list(role.permissions or [])
-            if "auto_approve_manual_activities" not in perms:
-                perms.append("auto_approve_manual_activities")
-                role.permissions = perms
-                db.commit()
-    except Exception as e:
-        db.rollback()
-        logging.error(f"Fejl ved opdatering af auto_approve_manual_activities-tilladelse: {e}")
-    finally:
-        db.close()
+    """Tilføjer auto_approve_manual_activities til lonbogholder-rollen (kun én gang)."""
+    _grant_permissions_once("auto_approve_manual_activities", ["auto_approve_manual_activities"], role_name="lonbogholder")
 
 
 def _ensure_activity_permissions():
-    """Tilføjer approve_activities og view_calendar til alle roller (idempotent)."""
-    from database.models import Role
-    db = SessionLocal()
-    try:
-        new_perms = ["approve_activities", "view_calendar"]
-        for role in db.query(Role).all():
-            perms = list(role.permissions or [])
-            changed = False
-            for p in new_perms:
-                if p not in perms:
-                    perms.append(p)
-                    changed = True
-            if changed:
-                role.permissions = perms
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        logging.error(f"Fejl ved opdatering af aktivitetsrettigheder: {e}")
-    finally:
-        db.close()
+    """Tilføjer approve_activities og view_calendar til alle roller (kun én gang)."""
+    _grant_permissions_once("activity_permissions", ["approve_activities", "view_calendar"])
 
 
 def _ensure_vagtplan_permissions():
-    """Tilføjer vagtplan_view + vagtplan_edit_all til ALLE roller (idempotent) – 'alle
+    """Tilføjer vagtplan_view + vagtplan_edit_all til ALLE roller (kun én gang) – 'alle
     nuværende roller skal kunne se og redigere i vagtplanen' (spec-beslutning 2026-08-21).
     vagtplan_edit_own tilføjes IKKE automatisk – det er en mere restriktiv, opt-in ret."""
-    from database.models import Role
-    db = SessionLocal()
-    try:
-        new_perms = ["vagtplan_view", "vagtplan_edit_all"]
-        for role in db.query(Role).all():
-            perms = list(role.permissions or [])
-            changed = False
-            for p in new_perms:
-                if p not in perms:
-                    perms.append(p)
-                    changed = True
-            if changed:
-                role.permissions = perms
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        logging.error(f"Fejl ved opdatering af vagtplan-rettigheder: {e}")
-    finally:
-        db.close()
+    _grant_permissions_once("vagtplan_permissions", ["vagtplan_view", "vagtplan_edit_all"])
 
 
 def _ensure_employee_supplements_permission():
-    """Tilføjer manage_employee_supplements til lonbogholder-rollen (idempotent)."""
-    from database.models import Role
-    db = SessionLocal()
-    try:
-        role = db.query(Role).filter(Role.name == "lonbogholder").first()
-        if role and not role.is_system:
-            perms = list(role.permissions or [])
-            if "manage_employee_supplements" not in perms:
-                perms.append("manage_employee_supplements")
-                role.permissions = perms
-                db.commit()
-    except Exception as e:
-        db.rollback()
-        logging.error(f"Fejl ved opdatering af manage_employee_supplements-tilladelse: {e}")
-    finally:
-        db.close()
+    """Tilføjer manage_employee_supplements til lonbogholder-rollen (kun én gang)."""
+    _grant_permissions_once("manage_employee_supplements", ["manage_employee_supplements"], lonbogholder_only=True)
 
 
 def _ensure_toggle_springer_permission():
-    """Tilføjer toggle_springer til ALLE roller (idempotent)."""
-    from database.models import Role
-    db = SessionLocal()
-    try:
-        for role in db.query(Role).all():
-            perms = list(role.permissions or [])
-            if "toggle_springer" not in perms:
-                perms.append("toggle_springer")
-                role.permissions = perms
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        logging.error(f"Fejl ved opdatering af toggle_springer-tilladelse: {e}")
-    finally:
-        db.close()
+    """Tilføjer toggle_springer til ALLE roller (kun én gang)."""
+    _grant_permissions_once("toggle_springer", ["toggle_springer"])
+
+
+def _ensure_edit_activities_permission():
+    """Tilføjer edit_activities til ALLE roller (kun én gang) – rettigheden blev indført
+    2026-09-30; før da kunne alle indloggede oprette/rette aktiviteter, så ingen
+    eksisterende rolle mister adgang ved indførelsen."""
+    _grant_permissions_once("edit_activities", ["edit_activities"])
 
 
 def _ensure_payroll_settlement_permissions():
-    """Tilføjer payroll_settlement_view + payroll_settlement_export til lonbogholder-rollen (idempotent)."""
-    from database.models import Role
-    db = SessionLocal()
-    try:
-        role = db.query(Role).filter(Role.name == "lonbogholder").first()
-        if role and not role.is_system:
-            perms = list(role.permissions or [])
-            changed = False
-            for p in ("payroll_settlement_view", "payroll_settlement_export"):
-                if p not in perms:
-                    perms.append(p)
-                    changed = True
-            if changed:
-                role.permissions = perms
-                db.commit()
-    except Exception as e:
-        db.rollback()
-        logging.error(f"Fejl ved opdatering af payroll_settlement-tilladelser: {e}")
-    finally:
-        db.close()
+    """Tilføjer payroll_settlement_view + payroll_settlement_export til lonbogholder-rollen (kun én gang)."""
+    _grant_permissions_once("payroll_settlement_permissions", ["payroll_settlement_view", "payroll_settlement_export"], lonbogholder_only=True)

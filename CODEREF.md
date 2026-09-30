@@ -424,7 +424,7 @@ Manuel dismiss: "Ændring foretaget"-knap (id: `btn-anciennitet-done`) → `dism
 ---
 
 ## Rollerettigheder – approve_activities / view_calendar (2026-07-27, session.py)
-`_ensure_activity_permissions()` tilføjer disse to nye tilladelser til ALLE eksisterende roller ved opstart (idempotent) – seed-data for nye roller (`_seed_roles()`) inkluderer dem også fra start. Følger samme mønster som `_ensure_anciennitet_alert_permission()`/`_ensure_manage_baselines_permission()`.
+`_ensure_activity_permissions()` tilføjer disse to nye tilladelser til ALLE eksisterende roller – siden 2026-09-30 kun ÉN gang pr. database via `_grant_permissions_once()` (se "Rettigheder håndhæves i backend" nedenfor) – seed-data for nye roller (`_seed_roles()`) inkluderer dem også fra start. Følger samme mønster som `_ensure_anciennitet_alert_permission()`/`_ensure_manage_baselines_permission()`.
 
 ---
 
@@ -446,7 +446,7 @@ Filens dato/minutter er **UTC** – konverteres til Europe/Copenhagen (DST-korre
 ## Periodegrænser i aktivitetsoversigten og sen registrering (2026-07-27)
 **Visning af aktiviteter der krydser periodegrænsen:** `list_activities()` i `activities.py` filtrerer ikke længere kun på `pay_period_id` – et OR-filter medtager også aktiviteter hvor `start_time` ligger før periodens startdato, men `end_time` ligger på/efter den (fx en søndagsvagt der starter sidst i forrige periode og fortsætter ind i den viste periode). Kun aktiviteter der faktisk krydser grænsen påvirkes.
 
-**Låst lønperiode (2026-09-30):** Manuel oprettelse (`POST /api/activities`), flytning via `PATCH` og tilføjelse af dage i en fraværsperiode på en dato i en låst periode AFVISES nu (`_forbid_date_in_closed_period` i `activities.py`) – sen registrering gælder kun DDD-import. Alle ændringer (PATCH, undo-edit, undo-split, split, segment-rettelser, reopen) af aktiviteter i en låst periode afvises (`_forbid_change_in_closed_period`), og fravær kan hverken slettes eller deaktiveres. Frontend bruger `ActivityResponse.period_closed` og `GET /api/activities/locked-dates`.
+**Låst lønperiode (2026-09-30):** Manuel oprettelse (`POST /api/activities`), flytning via `PATCH` og tilføjelse af dage i en fraværsperiode på en dato i en låst periode AFVISES nu (`_forbid_date_in_closed_period` i `activities.py`) – sen registrering gælder kun DDD-import. Alle ændringer (PATCH, undo-edit, undo-split, split, segment-rettelser, reopen) af aktiviteter i en låst periode afvises (`_forbid_change_in_closed_period`), og fravær kan hverken slettes eller deaktiveres. Frontend bruger `ActivityResponse.period_closed` og `GET /api/activities/locked-dates`. **Udvidet samme dag:** deactivate/DELETE afvises for ALLE typer (`_forbid_removal_in_closed_period`), `undo_edit` tjekker den oprindelige dato med `_forbid_date_in_closed_period` FØR tiderne ændres, `hide-from-vagtplan` bruger `_forbid_change_in_closed_period`, `auto-approve-pending` returnerer 0/0 i låst periode, og `DELETE /api/vagtplan-comments/{id}` afvises på låst dato.
 
 **Sen registrering på en allerede lukket periode (nu kun DDD-import):** ny hjælpefunktion `get_billing_period()` i `pay_period.py` – hvis den relevante dato hører til en periode med `status == closed`, returneres i stedet den PÅFØLGENDE periode (kalder `get_or_create_period_for_date()` på `end_date + 1 dag`). Bruges ved oprettelse af aktivitet (`POST /api/activities`), redigering af starttid (`PUT /api/activities/{id}`) og DDD-import (`_process_activity` i `import_ddd.py`). `reopen`-endpointet er bevidst IKKE ændret – en genåbnet aktivitet bevarer sin oprindelige `pay_period_id`; det er kun visningen (ovenstående OR-filter), der sørger for at den stadig ses i den efterfølgende periodes oversigt.
 
@@ -585,7 +585,7 @@ Ny løntypekode `SPRINGERTILLAEG` (kr/time-sats fra `MasterSupplementRate`, labe
 
 **Periodeopslag i `_calculate_employee()`:** perioden slås op internt via `get_or_create_period_for_date(start, db)` i stedet for at tilføje en `period_id`-parameter — funktionen har 8 kaldssteder, nogle med frie datointervaller (tidssedler/preview) uden noget naturligt periode-begreb.
 
-**Endpoints** (`activities.py`): `GET /api/activities/springer-flags?pay_period_id=` (login, ingen særskilt permission — samme niveau som resten af aktivitetsoversigten), `POST /api/activities/springer-flag` (kræver `toggle_springer`, upsert, afvises med 400 hvis perioden er `closed`).
+**Endpoints** (`activities.py`): `GET /api/activities/springer-flags?pay_period_id=` (`view_calendar` eller `vagtplan_view` siden 2026-09-30 — samme niveau som resten af aktivitetsoversigten), `POST /api/activities/springer-flag` (kræver `toggle_springer`, upsert, afvises med 400 hvis perioden er `closed`).
 
 **Permission `toggle_springer`:** gives til ALLE roller (system og ikke-system) ved migrering, jf. beslutning om at åbne den for alle roller for nu.
 
@@ -681,6 +681,21 @@ Ny sidebar-side der digitaliserer den daglige fordeling af vogne til chauffører
 - **Lønafregning:** `_calculate_employee()` lægger `by_vehicle` på dags-indgangen (vognnummer slås op i Vognpark ved beregning, tomt hvis bilen ikke findes); `_expand_day()` bruger `by_vehicle` før `by_date`; rækken får `vehicle_times` (vises IKKE – kun vognnummer i kolonnen, bekræftet af bruger 2026-09-30). Lønafregning-CSV får samme rækker (ingen ny kolonne).
 - **Aktivitet:** `ActivityResponse.vehicle_uses` (kun ved ≥2 biler) → modal viser "Biler på vagten" mellem KM-felterne og Salttillæg; vognnummer-dropdown erstattes af skjult tomt felt, og `PATCH` afviser ændret `vehicle_number` (400).
 - Tests: `tests/test_multi_vehicle.py`.
+
+---
+
+## Rettigheder håndhæves i backend (2026-09-30, auth.py + session.py + activities.py + employees.py + vehicles.py + vagtplan_comments.py + stamdata.py + app.js)
+- **Engangstildeling:** `_grant_permissions_once(key, perms, role_name=None, lonbogholder_only=False)` i `session.py` + tabel `applied_permission_grants` (model `AppliedPermissionGrant`). Alle `_ensure_*_permission()` går gennem den → en rettighed fjernet af en admin kommer ikke igen ved genstart (før blev 5 rettigheder genindsat på ALLE roller hver nat). Nye tildelinger: tilføj en `_ensure_x()` med ny unik key og kald den i `init_db()`.
+- **Ny permission `edit_activities`** ("Redigér aktiviteter", `auth.py` + `PERMISSION_LABELS`/`DESCRIPTIONS` i app.js), tildelt alle roller én gang (`_ensure_edit_activities_permission()`).
+- **`_require_activity_permission(db, user, a, perm)`** (activities.py): `approve_activities` på approve/deactivate/DELETE/reopen (+ `auto-approve-pending` via `_has_activity_permission`); `edit_activities` på PATCH, undo-edit, undo-split, split, correct-segment, correct-all-segments, resize-segment, POST (ikke source=vagtplan) og PATCH absence-group (ikke vagtplan-perioder). Undtagelse: `source=vagtplan` + `_has_vagtplan_edit_access()`. Tests slår tjekket fra via autouse-fixture i `tests/conftest.py` – markér tests af selve tjekket `@pytest.mark.real_activity_permissions`.
+- **`require_any_permission(*perms)`** (auth.py): GET activities/{id}/springer-flags/absence-group = `view_calendar|vagtplan_view`; GET `/api/employees` + `/{id}` og GET `/api/vehicles` = én af en række skærm-rettigheder (se `_employee_list_access`/`_vehicle_list_access`). `_visible_response()` sætter `_PRIVATE_EMPLOYEE_FIELDS` (kort, adresse, postnr., e-mail, telefon, mobil, hourly_rate, cvr_number) til None uden `view_employees`/`manage_employees`.
+- Øvrige: GET vagtplan-comments = `vagtplan_view`; hide-from-vagtplan = vagtplan-redigeringsret; anciennitet-/§56-alerts + dismiss = `anciennitet_alert`/`paragraf_56_alert`; GET `/api/stamdata/holidays` = kun login (alle skal se helligdage). Kun login: agreement-types/-kinds, dispatcher-groups, absence-types, period-info, locked-dates, auto-approval/settings.
+- **Frontend:** `_hasPerm()`, `_canActivity(a, perm)` (spejler backend inkl. vagtplan-undtagelsen), `_editLocked(a)` (låst periode ELLER mangler edit) styrer knapper i `openActivityDetail()`, `renderActionBtns()`, `renderSegmentTable()`; `confirmApprove()` springer PATCH over når `_editLocked`. "+ Tilføj aktivitet" og Aktiviteter-menupunktet har `data-perm-require` (edit_activities/view_calendar); `_firstPermittedView()` vælger startside; `applyRoleVisibility()` skjuler tomme menugrupper; Stamdata ligger ikke længere bag `user_management`.
+
+## Øvrige rettelser 2026-09-30
+- **Tømte felter:** `update_employee` tømmer `_CLEARABLE_EMPLOYEE_FIELDS` (kort, initialer, adresse, postnr., e-mail, telefon, mobil) når de sendes som null; `update_activity` tømmer km_start/km_end/vehicle_number (vognnr. ikke når `a.vehicle_uses` findes – tomt betyder dér "uændret"). `exclude_none` bevarer stadig felter der ikke sendes.
+- **Split** bevarer segmenternes 4. element (rettet type) – før ValueError ved "Ret til andet arbejde" + split.
+- **Lønkørsel "I alt" = Lønafregning:** `settlement_total_kr(calc, days=None)` i `payroll_settlement_router.py` bruges af både `_employee_settlement_data()` og `payroll_preview()` (lazy import) → `grand_total_kr` i preview-svaret. `totals["ferie"]` → `ferie_hours` (kun visning, ikke i CSV). app.js viser Ferie-linje og Afspadsering med sats. PDF-timesedlen er bevidst uændret (ingen Ferie).
 
 ---
 
