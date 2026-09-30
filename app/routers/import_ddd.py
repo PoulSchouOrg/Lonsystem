@@ -4,7 +4,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import and_, case
+from sqlalchemy import and_, case, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -271,6 +271,17 @@ def _import_activity(
     # 1.273 dublet-rækker på tværs af 38 medarbejdere stammede fra netop
     # dette). Med sorteringen konvergerer alle senere importer i stedet til
     # at opdatere den ene, allerede oprettede korrektionslinje.
+    #
+    # Sekundær sortering (kun afgørende mellem ellers ligestillede kandidater):
+    # foretræk en linje hvis OPRINDELIGT importerede tider overlapper vagten,
+    # frem for en linje der kun overlapper fordi dens tider er trukket ud
+    # manuelt. Uden den matcher en genimport af en deaktiveret delvagt ofte den
+    # udvidede, godkendte linje i stedet, og da dens oprindelige tider ikke
+    # passer, oprettes en ny dublet-linje (bekræftet 2026-09-30: Mathias Hardon
+    # 24/9 og 25/9 – to tachograf-linjer slået sammen ved at flytte start/slut
+    # på den ene og deaktivere den anden).
+    baseline_start_col = func.coalesce(Activity.original_start_time, Activity.start_time)
+    baseline_end_col = func.coalesce(Activity.original_end_time, Activity.end_time)
     existing = (
         db.query(Activity)
         .filter(
@@ -279,11 +290,18 @@ def _import_activity(
             Activity.start_time < act.end_time,
             Activity.end_time > act.start_time,
         )
-        .order_by(case(
-            (and_(Activity.status == ActivityStatus.pending,
-                  Activity.parent_activity_id.is_(None)), 0),
-            else_=1,
-        ))
+        .order_by(
+            case(
+                (and_(Activity.status == ActivityStatus.pending,
+                      Activity.parent_activity_id.is_(None)), 0),
+                else_=1,
+            ),
+            case(
+                (and_(baseline_start_col < act.end_time,
+                      baseline_end_col > act.start_time), 0),
+                else_=1,
+            ),
+        )
         .first()
     )
     if existing:

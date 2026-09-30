@@ -294,6 +294,47 @@ def test_unchanged_readout_of_approved_activity_does_not_create_new_line(db, emp
     assert db.query(Activity).filter(Activity.employee_id == employee.id).count() == 1
 
 
+def test_reimport_prefers_line_whose_original_times_overlap_over_manually_stretched_line(db, employee):
+    """
+    Reproducerer Mathias Hardon 24/9-2026: en dag med to tachograf-linjer
+    (morgen 06:24-08:49 og eftermiddag 13:48-19:05) blev slået sammen manuelt
+    ved at deaktivere morgenlinjen og trække eftermiddagslinjens START frem
+    til 06:00, før den blev godkendt. Den udvidede linje overlapper nu
+    morgenvagten med sine NUVÆRENDE tider, men ikke med sine OPRINDELIGE.
+    En genimport af den uændrede morgenvagt skal matche den deaktiverede
+    (identiske) morgenlinje – ikke den udvidede eftermiddagslinje, hvis
+    oprindelige tider ikke passer og derfor udløste en ny dublet-linje.
+    """
+    m_start, m_end = datetime(2026, 9, 24, 6, 24), datetime(2026, 9, 24, 8, 49)
+    a_start, a_end = datetime(2026, 9, 24, 13, 48), datetime(2026, 9, 24, 19, 5)
+
+    stretched = make_activity(db, employee, start=datetime(2026, 9, 24, 6, 0), end=a_end,
+                              status=ActivityStatus.approved)
+    stretched.original_start_time = a_start
+    stretched.original_end_time = a_end
+    stretched.segments = [[a_start.isoformat(), a_end.isoformat(), "driving"]]
+    stretched.pause_intervals = []
+
+    morning = make_activity(db, employee, start=m_start, end=m_end, status=ActivityStatus.deactivated)
+    morning.segments = [[m_start.isoformat(), m_end.isoformat(), "work"]]
+    morning.pause_intervals = []
+    db.commit()
+
+    result, _ = _import_activity(
+        _parsed(m_start, m_end, segments=[(m_start, m_end, "work")], pauses=[]), db, employee
+    )
+    assert result == "skipped_duplicate"
+
+    result, _ = _import_activity(
+        _parsed(a_start, a_end, segments=[(a_start, a_end, "driving")], pauses=[]), db, employee
+    )
+    assert result == "skipped_duplicate"
+
+    db.refresh(stretched)
+    assert stretched.start_time == datetime(2026, 9, 24, 6, 0)
+    assert db.query(Activity).filter(Activity.employee_id == employee.id).count() == 2
+
+
 def test_stale_incomplete_reread_of_deactivated_activity_does_not_create_new_line(db, employee):
     """
     Reproducerer Alexander B. Knudsen 11/9-2026: en vagt blev først importeret
