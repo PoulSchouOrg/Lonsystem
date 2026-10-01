@@ -272,6 +272,21 @@ def _migrate():
         if "absence_vehicle_id" not in emp_cols3:
             conn.execute("ALTER TABLE employees ADD COLUMN absence_vehicle_id INTEGER")
             conn.commit()
+        for col, ddl in (
+            ("position_id", "INTEGER"),
+            ("seniority_date", "DATE"),
+            ("cpr_number", "VARCHAR(11)"),
+            ("elev", "BOOLEAN NOT NULL DEFAULT 0"),
+            ("elev_start_date", "DATE"),
+            ("elev_end_date", "DATE"),
+            # Eksisterende medarbejdere sættes bevidst IKKE som medlem (besluttet 2026-10-01);
+            # nye medarbejdere får modellens default True.
+            ("personaleforening", "BOOLEAN NOT NULL DEFAULT 0"),
+            ("natarbejde_tillaeg", "BOOLEAN NOT NULL DEFAULT 0"),
+        ):
+            if col not in emp_cols3:
+                conn.execute(f"ALTER TABLE employees ADD COLUMN {col} {ddl}")
+                conn.commit()
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_employee_supplements_one_open_row "
             "ON employee_supplements(employee_id) WHERE end_date = '9999-12-31'"

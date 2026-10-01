@@ -29,6 +29,8 @@ const state = {
   vehiclesTab: "vognpark", // aktiv fane i Vognpark-view ("vognpark" | "all")
   holidays: [],            // { date: "YYYY-MM-DD", name: string, half_day_from: string|null }
   dispatcherGroups: [],    // { id, name, description }
+  positions: [],           // { id, name } – stillinger (Stamdata → Stillinger)
+  employeeSort: { key: "name", dir: 1 },  // sortering i medarbejder-tabelvisningen
   autoApprovalEnabled: true, // global til/fra-kontakt, hentet ved app-bootstrap
   vagtplan: {
     weekStart: null,       // ISO date (Monday) of the first of the 4 displayed weeks
@@ -71,6 +73,12 @@ const PERMISSION_LABELS = {
   payroll_settlement_export: "Lønafregning (eksport)",
   dagsplan_view:       "Se dagsplan",
   dagsplan_edit:       "Redigere dagsplan",
+  view_cpr:            "Se CPR-nummer",
+  jubilee_alert:       "Jubilæumsadvarsel",
+  elev_alert:          "Elevadvarsel",
+  birthday_alert:      "Fødselsdagsadvarsel",
+  employee_table_view: "Tabelvisning af medarbejdere",
+  employee_export:     "Eksportér medarbejderregister",
 };
 
 const PERMISSION_DESCRIPTIONS = {
@@ -101,6 +109,12 @@ const PERMISSION_DESCRIPTIONS = {
   payroll_settlement_export: "Kan eksportere lønafregningen.",
   dagsplan_view:       "Kan se Dagsplan-siden (vogn-/chauffør-fordeling og materielt fravær), read-only.",
   dagsplan_edit:       "Kan redigere Dagsplan-tildelinger, afkrydse \"informeret\", og melde/fjerne materielt fravær på vogne.",
+  view_cpr:            "Kan se hele CPR-nummeret. Uden rettigheden vises de sidste fire cifre som ****.",
+  jubilee_alert:       "Får en popup en måned før en medarbejders 25-, 40- og 50-års jubilæum.",
+  elev_alert:          "Får en popup en måned før en elevs slutdato.",
+  birthday_alert:      "Får en popup en måned før en medarbejders runde fødselsdag (10, 20, 30 …).",
+  employee_table_view: "Kan skifte medarbejderregisteret til tabelvisning.",
+  employee_export:     "Kan eksportere medarbejderregisterets tabel til Excel.",
 };
 
 let manualPauses = [];
@@ -420,7 +434,7 @@ function renderVagtplanTable() {
 
   body.innerHTML = "";
   for (const emp of emps) {
-    let cells = `<td class="emp-cell${emp.afloeser ? " afloeser-highlight" : ""}" title="${h(emp.name)} (lønnr. ${h(emp.employee_number)})">${h(emp.name)}</td>`;
+    let cells = `<td class="emp-cell${empCellHighlight(emp)}" title="${h(emp.name)} (lønnr. ${h(emp.employee_number)})">${h(emp.name)}</td>`;
     for (const d of days) {
       const iso = _isoOfDate(d);
       const entry = byEmpDay[emp.id]?.[iso];
@@ -995,7 +1009,7 @@ function renderActivitiesTable() {
     const tr = document.createElement("tr");
     const springerChecked = state.springerFlags?.[emp.id] === true;
     const springerDisabledAttr = (!canToggleSpringer || periodLocked) ? "disabled" : "";
-    let cells = `<td class="emp-cell${emp.afloeser ? " afloeser-highlight" : ""}" title="${h(emp.name)} (lønnr. ${h(emp.employee_number)})">
+    let cells = `<td class="emp-cell${empCellHighlight(emp)}" title="${h(emp.name)} (lønnr. ${h(emp.employee_number)})">
       ${h(emp.name)}
       <label class="springer-flag-label">
         <input type="checkbox" class="springer-flag-checkbox" data-emp-id="${emp.id}"
@@ -3183,53 +3197,164 @@ async function loadEmployees() {
   setLoading(true);
   try {
     const showInactive = document.getElementById("show-inactive")?.checked;
-    state.employees = await GET(`/api/employees?active_only=${!showInactive}`);
+    const [emps] = await Promise.all([GET(`/api/employees?active_only=${!showInactive}`), loadPositions()]);
+    state.employees = emps;
+    fillEmployeePositionFilter();
     renderEmployeeList();
   } catch (e) { toast(e.message, "error"); }
   finally { setLoading(false); }
 }
 
-function renderEmployeeList() {
+function fillEmployeePositionFilter() {
+  const sel = document.getElementById("employee-filter-position");
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">Alle stillinger</option><option value="none">Ingen stilling</option>` +
+    (state.positions || []).map(p => `<option value="${p.id}">${h(p.name)}</option>`).join("");
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
+
+// Telefonsøgning: mellemrum, bindestreger og +45/0045 ignoreres
+function _normalizePhone(s) {
+  let d = String(s || "").replace(/\D/g, "");
+  if (d.startsWith("0045")) d = d.slice(4);
+  else if (d.length === 10 && d.startsWith("45")) d = d.slice(2);
+  return d;
+}
+
+function _boolFilter(id, value) {
+  const v = document.getElementById(id)?.value || "";
+  return v === "" || (v === "1") === !!value;
+}
+
+function _filteredEmployees() {
   const query = (document.getElementById("employee-search")?.value || "").toLowerCase().trim();
-  const container = document.getElementById("employee-list");
-  container.innerHTML = "";
+  const phoneQuery = _normalizePhone(query);
   let emps = state.employees;
   if (query) {
     emps = emps.filter(e =>
       e.name.toLowerCase().includes(query) ||
-      String(e.employee_number).toLowerCase().includes(query)
+      String(e.employee_number).toLowerCase().includes(query) ||
+      (phoneQuery.length >= 3 && [e.phone, e.mobile].some(p => _normalizePhone(p).includes(phoneQuery)))
     );
   }
   const groupFilter = document.getElementById("employee-filter-dispatcher-group")?.value || "";
-  if (groupFilter === "none") {
-    emps = emps.filter(e => !e.dispatcher_group);
-  } else if (groupFilter) {
-    emps = emps.filter(e => e.dispatcher_group?.id === parseInt(groupFilter));
-  }
-  emps = emps.slice().sort((a, b) => a.name.localeCompare(b.name, "da"));
+  if (groupFilter === "none") emps = emps.filter(e => !e.dispatcher_group);
+  else if (groupFilter) emps = emps.filter(e => e.dispatcher_group?.id === parseInt(groupFilter));
+  const posFilter = document.getElementById("employee-filter-position")?.value || "";
+  if (posFilter === "none") emps = emps.filter(e => !e.position_id);
+  else if (posFilter) emps = emps.filter(e => e.position_id === parseInt(posFilter));
+  emps = emps.filter(e =>
+    _boolFilter("employee-filter-personaleforening", e.personaleforening) &&
+    _boolFilter("employee-filter-natarbejde", e.natarbejde_tillaeg) &&
+    _boolFilter("employee-filter-elev", isElev(e)));
+  return emps;
+}
+
+const _EMP_TABLE_COLUMNS = [
+  { key: "employee_number", label: "Lønnummer", value: e => e.employee_number, sort: e => e.employee_number },
+  { key: "name",            label: "Navn",      value: e => e.name, sort: e => e.name },
+  { key: "fuldloennet",     label: "Fuldlønnet", value: e => e.fuldloennet ? "✓" : "–", sort: e => e.fuldloennet ? 1 : 0 },
+  { key: "natarbejde",      label: "Natarbejdetillæg", value: e => e.natarbejde_tillaeg ? "✓" : "–", sort: e => e.natarbejde_tillaeg ? 1 : 0 },
+  { key: "position",        label: "Stilling",  value: e => e.position_name || "", sort: e => e.position_name || "" },
+  { key: "group",           label: "Disponentgruppe", value: e => e.dispatcher_group?.name || "", sort: e => e.dispatcher_group?.name || "" },
+  { key: "hire_date",       label: "Ansættelsesdato", value: e => formatDateShort(e.hire_date), sort: e => e.hire_date },
+  { key: "phone",           label: "Telefon",   value: e => e.phone || "", sort: e => e.phone || "" },
+  { key: "mobile",          label: "Mobil",     value: e => e.mobile || "", sort: e => e.mobile || "" },
+  { key: "email",           label: "Email",     value: e => e.email || "", sort: e => e.email || "" },
+  { key: "elev",            label: "Elev",
+    value: e => isElev(e) ? `Ja (${formatDateShort(e.elev_start_date)}–${formatDateShort(e.elev_end_date)})` : "Nej",
+    sort: e => isElev(e) ? (e.elev_end_date || "") : "" },
+];
+
+function _employeeViewMode() {
+  if (!_hasPerm("employee_table_view")) return "list";
+  try { return localStorage.getItem("employeeViewMode") === "table" ? "table" : "list"; }
+  catch (_) { return "list"; }
+}
+
+function toggleEmployeeView() {
+  const next = _employeeViewMode() === "table" ? "list" : "table";
+  try { localStorage.setItem("employeeViewMode", next); } catch (_) {}
+  renderEmployeeList();
+}
+
+function sortEmployeeTable(key) {
+  const cur = state.employeeSort || { key: "name", dir: 1 };
+  state.employeeSort = { key, dir: cur.key === key ? -cur.dir : 1 };
+  renderEmployeeList();
+}
+
+function _sortedForTable(emps) {
+  const { key, dir } = state.employeeSort || { key: "name", dir: 1 };
+  const col = _EMP_TABLE_COLUMNS.find(c => c.key === key) || _EMP_TABLE_COLUMNS[1];
+  return emps.slice().sort((a, b) => {
+    const va = col.sort(a), vb = col.sort(b);
+    const cmp = typeof va === "number" ? va - vb : naturalCompare(String(va), String(vb));
+    return cmp * dir;
+  });
+}
+
+function renderEmployeeList() {
+  const container = document.getElementById("employee-list");
+  container.innerHTML = "";
+  const mode = _employeeViewMode();
+  const toggleBtn = document.getElementById("btn-employee-view-toggle");
+  if (toggleBtn) toggleBtn.textContent = mode === "table" ? "Liste" : "Tabel";
+  const exportBtn = document.getElementById("btn-employee-export");
+  if (exportBtn) exportBtn.style.display = mode === "table" && _hasPerm("employee_export") ? "" : "none";
+
+  const emps = _filteredEmployees();
   if (emps.length === 0) {
     container.innerHTML = `<div class="empty-state"><div class="icon">👤</div><h3>Ingen medarbejdere</h3></div>`;
     return;
   }
-  for (const e of emps) {
+  const canEdit = _hasPerm("manage_employees");
+
+  if (mode === "table") {
+    const sorted = _sortedForTable(emps);
+    const { key, dir } = state.employeeSort || { key: "name", dir: 1 };
+    container.innerHTML = `
+      <div style="overflow-x:auto">
+        <table class="emp-table">
+          <thead><tr>${_EMP_TABLE_COLUMNS.map(c =>
+            `<th onclick="sortEmployeeTable(${jq(c.key)})">${h(c.label)}${c.key === key ? (dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}</tr></thead>
+          <tbody>${sorted.map(e => `
+            <tr class="${isElev(e) ? "elev-row" : ""}" ${canEdit ? `onclick="openEditEmployee(${e.id})"` : ""}>
+              ${_EMP_TABLE_COLUMNS.map(c => `<td>${h(c.value(e))}</td>`).join("")}
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
+    return;
+  }
+
+  for (const e of emps.slice().sort((a, b) => a.name.localeCompare(b.name, "da"))) {
     const initials = `${e.first_name[0] || ""}${e.last_name[0] || ""}`.toUpperCase();
+    const avatarStyle = isElev(e) ? "background:#e0a800" : (e.afloeser ? "background:var(--accent)" : "");
     const div = document.createElement("div");
     div.className = "emp-card";
     div.style.cursor = "pointer";
     div.innerHTML = `
-      <div class="emp-avatar" style="${e.afloeser ? "background:var(--accent)" : ""}">${h(initials)}</div>
+      <div class="emp-avatar" style="${avatarStyle}">${h(initials)}</div>
       <div class="emp-info">
         <div class="emp-name">${h(e.name)}</div>
-        <div class="emp-sub">Lønnr. ${h(e.employee_number)}</div>
+        <div class="emp-sub">Lønnr. ${h(e.employee_number)}${e.position_name ? ` · ${h(e.position_name)}` : ""}</div>
       </div>
       ${e.active ? "" : `<span class="badge" style="background:#fee2e2;color:#dc2626">Inaktiv</span>`}
-      ${state.currentUser?.permissions?.includes("manage_employees") ? `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); openEditEmployee(${e.id})">Rediger</button>` : ""}
+      ${canEdit ? `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); openEditEmployee(${e.id})">Rediger</button>` : ""}
     `;
-    div.addEventListener("click", () => {
-      if (state.currentUser?.permissions?.includes("manage_employees")) openEditEmployee(e.id);
-    });
+    div.addEventListener("click", () => { if (canEdit) openEditEmployee(e.id); });
     container.appendChild(div);
   }
+}
+
+async function exportEmployeesXlsx() {
+  const ids = _sortedForTable(_filteredEmployees()).map(e => e.id);
+  if (!ids.length) { toast("Ingen medarbejdere at eksportere", "error"); return; }
+  try {
+    await downloadFile("/api/employees/export-xlsx", { employee_ids: ids }, "Medarbejderregister.xlsx");
+  } catch (e) { toast(e.message, "error"); }
 }
 
 function openParagraf56ListModal() {
@@ -3513,6 +3638,19 @@ document.addEventListener("click", (e) => {
   }
 });
 
+const FUNKTIONAER = "funktionaer";
+let _empOriginalKind = null;   // aftaletype ved åbning af modalen (null = ny medarbejder)
+
+// Navnecellens markering: elev (gul) vinder over afløser (grøn)
+function empCellHighlight(emp) {
+  if (isElev(emp)) return " elev-highlight";
+  return emp.afloeser ? " afloeser-highlight" : "";
+}
+
+function isElev(e) {
+  return !!e.elev && e.agreement_kind !== FUNKTIONAER;
+}
+
 function onAgreementKindChange() {
   const key = document.getElementById("emp-agreement-kind").value;
   const kind = state.agreementKinds.find(k => k.key === key);
@@ -3522,20 +3660,65 @@ function onAgreementKindChange() {
   document.getElementById("emp-agreement-type-group").style.display = requires ? "" : "none";
   if (!requires) document.getElementById("emp-agreement-type").value = "";
 
-  const isFunktionaer = key === "funktionaer";
+  // Felter der ikke gælder for typen skjules kun – værdierne bevares (spec 3.3)
+  const isFunktionaer = key === FUNKTIONAER;
   document.getElementById("emp-card-group").style.display = isFunktionaer ? "none" : "";
-  if (isFunktionaer) document.getElementById("emp-card").value = "";
+  document.getElementById("emp-initials-star").style.display = isFunktionaer ? "" : "none";
+  document.getElementById("emp-email-label").textContent = isFunktionaer ? "Email (Poulschou)" : "Email (Privat)";
+  document.querySelectorAll("#modal-employee .emp-driver-only").forEach(el => {
+    el.style.display = isFunktionaer ? "none" : "";
+  });
+  if (!isFunktionaer) {
+    onFastBilChange();
+  }
+  onElevChange();
 
   const isNewEmployee = !document.getElementById("emp-id").value;
-  if (isNewEmployee && key === "funktionaer") {
-    const container = document.getElementById("emp-dispatcher-groups");
-    const noneChecked = !container.querySelector("input[type=checkbox]:checked");
-    if (noneChecked) {
+  if (isNewEmployee && isFunktionaer) {
+    const sel = document.getElementById("emp-dispatcher-group");
+    if (!sel.value) {
       const kontorGroup = state.dispatcherGroups.find(g => /^0\b/.test(g.name.trim()) && /kontor/i.test(g.name));
-      const checkbox = kontorGroup && container.querySelector(`input[type=checkbox][value="${kontorGroup.id}"]`);
-      if (checkbox) checkbox.checked = true;
+      if (kontorGroup) sel.value = String(kontorGroup.id);
     }
   }
+}
+
+function onElevChange() {
+  const isFunktionaer = document.getElementById("emp-agreement-kind").value === FUNKTIONAER;
+  const checked = document.getElementById("emp-elev").checked;
+  document.getElementById("emp-elev-dates").style.display = checked && !isFunktionaer ? "" : "none";
+}
+
+async function loadPositions() {
+  try { state.positions = await GET("/api/employees/positions"); }
+  catch (_) { state.positions = state.positions || []; }
+}
+
+function fillPositionSelect(selectedId = null) {
+  const sel = document.getElementById("emp-position");
+  sel.innerHTML = `<option value="">[Vælg stilling]</option>` + (state.positions || [])
+    .map(p => `<option value="${p.id}" ${p.id === selectedId ? "selected" : ""}>${h(p.name)}</option>`)
+    .join("");
+}
+
+async function checkEmployeeNumber() {
+  const input = document.getElementById("emp-number");
+  const err = document.getElementById("emp-number-error");
+  const number = input.value.trim();
+  err.style.display = "none";
+  if (!number) return true;
+  const id = document.getElementById("emp-id").value;
+  try {
+    const qs = new URLSearchParams({ number });
+    if (id) qs.set("exclude_id", id);
+    const r = await GET(`/api/employees/check-number?${qs}`);
+    if (r.taken) {
+      err.textContent = `Lønnummer ${number} bruges allerede af ${r.employee_name}`;
+      err.style.display = "";
+      return false;
+    }
+  } catch (_) { /* serveren afviser alligevel en dublet ved gem */ }
+  return true;
 }
 
 async function _loadEmpCvrDropdown(selectedCvr) {
@@ -3563,12 +3746,13 @@ function fillDispatcherGroupSelect(selectedId = null) {
 async function openNewEmployeeModal() {
   await loadAgreementTypes();
   await loadAgreementKinds();
+  await loadPositions();
   if (!state.vehicles.length) { try { state.vehicles = await GET("/api/vehicles"); } catch (_) {} }
   document.getElementById("emp-modal-title").textContent = "Opret medarbejder";
   document.getElementById("emp-save-btn").textContent = "Opret";
   document.getElementById("emp-id").value = "";
   ["emp-number","emp-card","emp-initials","emp-firstname","emp-lastname","emp-address","emp-postal",
-   "emp-email","emp-phone","emp-mobile"].forEach(id => document.getElementById(id).value = "");
+   "emp-email","emp-phone","emp-mobile","emp-cpr"].forEach(id => document.getElementById(id).value = "");
   fillAgreementKindSelect();
   fillAgreementTypeSelect();
   fillDispatcherGroupSelect(null);
@@ -3588,6 +3772,21 @@ async function openNewEmployeeModal() {
   document.getElementById("emp-fast-bil-vehicle-id").value = "";
   document.getElementById("emp-absence-vehicle-search").value = "";
   document.getElementById("emp-absence-vehicle-id").value = "";
+  _empOriginalKind = null;
+  fillPositionSelect(null);
+  buildDatePicker("emp-seniority", "");
+  document.getElementById("emp-cpr-hint").style.display = "none";
+  document.getElementById("emp-personaleforening").checked = true;
+  document.getElementById("emp-elev").checked = false;
+  document.getElementById("emp-natarbejde").checked = false;
+  buildDatePicker("emp-elev-start", "");
+  buildDatePicker("emp-elev-end", "");
+  document.getElementById("emp-number-error").style.display = "none";
+  try {
+    const { suggestion } = await GET("/api/employees/next-employee-number");
+    document.getElementById("emp-number").value = suggestion;
+  } catch (_) { /* forslag er en hjælp – modalen virker uden */ }
+  onAgreementKindChange();
   buildScheduleTable(null);
   await _loadEmpCvrDropdown(null);
   document.getElementById("emp-active-supplement").value = "";
@@ -3597,6 +3796,7 @@ async function openNewEmployeeModal() {
 async function openEditEmployee(id) {
   await loadAgreementTypes();
   await loadAgreementKinds();
+  await loadPositions();
   if (!state.vehicles.length) { try { state.vehicles = await GET("/api/vehicles"); } catch (_) {} }
   const e = state.employees.find(x => x.id === id);
   if (!e) return;
@@ -3632,6 +3832,18 @@ async function openEditEmployee(id) {
   document.getElementById("emp-fast-bil-vehicle-id").value = e.fast_bil_vehicle_id || "";
   document.getElementById("emp-absence-vehicle-search").value = e.absence_vehicle_number || "";
   document.getElementById("emp-absence-vehicle-id").value = e.absence_vehicle_id || "";
+  _empOriginalKind = e.agreement_kind;
+  fillPositionSelect(e.position_id ?? null);
+  buildDatePicker("emp-seniority", e.seniority_date || "");
+  document.getElementById("emp-cpr").value = e.cpr_number || "";
+  document.getElementById("emp-cpr-hint").style.display = (e.cpr_number || "").endsWith("****") ? "" : "none";
+  document.getElementById("emp-personaleforening").checked = e.personaleforening;
+  document.getElementById("emp-elev").checked = e.elev;
+  document.getElementById("emp-natarbejde").checked = e.natarbejde_tillaeg;
+  buildDatePicker("emp-elev-start", e.elev_start_date || "");
+  buildDatePicker("emp-elev-end", e.elev_end_date || "");
+  document.getElementById("emp-number-error").style.display = "none";
+  onAgreementKindChange();
   buildScheduleTable(e.work_schedule);
   await _loadEmpCvrDropdown(e.cvr_number || null);
   if (state.currentUser?.permissions?.includes("manage_employee_supplements")) {
@@ -3682,13 +3894,36 @@ async function confirmEmployee() {
       ? parseInt(document.getElementById("emp-fast-bil-vehicle-id").value) : null,
     absence_vehicle_id: document.getElementById("emp-absence-vehicle-id").value
       ? parseInt(document.getElementById("emp-absence-vehicle-id").value) : null,
+    position_id: document.getElementById("emp-position").value
+      ? parseInt(document.getElementById("emp-position").value) : null,
+    seniority_date: readDatePicker("emp-seniority") || null,
+    cpr_number: document.getElementById("emp-cpr").value.trim() || null,
+    personaleforening: document.getElementById("emp-personaleforening").checked,
+    elev: document.getElementById("emp-elev").checked,
+    elev_start_date: document.getElementById("emp-elev").checked ? (readDatePicker("emp-elev-start") || null) : null,
+    elev_end_date: document.getElementById("emp-elev").checked ? (readDatePicker("emp-elev-end") || null) : null,
+    natarbejde_tillaeg: document.getElementById("emp-natarbejde").checked,
   };
-  if (!body.employee_number || !body.first_name || !body.last_name || !body.hire_date) {
-    toast("Udfyld lønnummer, navn og ansættelsesdato", "error");
+  const isFunktionaer = body.agreement_kind === FUNKTIONAER;
+  const missing = [];
+  if (!body.employee_number) missing.push("Lønnummer");
+  if (!body.first_name) missing.push("Fornavn");
+  if (!body.last_name) missing.push("Efternavn");
+  if (!body.hire_date) missing.push("Ansættelsesdato");
+  if (!body.position_id) missing.push("Stilling");
+  if (!body.email) missing.push("Email");
+  if (isFunktionaer && !body.initials) missing.push("Initialer");
+  if (!isFunktionaer && !body.tachograph_card_number) missing.push("Førerkortnummer");
+  if (missing.length) {
+    toast(`Udfyld: ${missing.join(", ")}`, "error");
     return;
   }
   if (!body.absence_vehicle_id) {
     toast("Vælg et vognnummer ved fravær fra listen", "error");
+    return;
+  }
+  if (body.cpr_number && !body.cpr_number.endsWith("****") && !/^\d{6}-\d{4}$/.test(body.cpr_number)) {
+    toast("CPR-nummer skal have formatet ddmmåå-xxxx", "error");
     return;
   }
   if (body.paragraf_56 && (!body.paragraf_56_start_date || !body.paragraf_56_end_date)) {
@@ -3699,7 +3934,32 @@ async function confirmEmployee() {
     toast("§56 slutdato skal være efter startdato", "error");
     return;
   }
+  if (!isFunktionaer && body.elev && (!body.elev_start_date || !body.elev_end_date)) {
+    toast("Udfyld start- og slutdato for elev", "error");
+    return;
+  }
+  if (!isFunktionaer && body.elev && body.elev_end_date < body.elev_start_date) {
+    toast("Elev slutdato skal være efter startdato", "error");
+    return;
+  }
+  if (!(await checkEmployeeNumber())) {
+    toast("Lønnummeret er allerede i brug", "error");
+    return;
+  }
 
+  // Skift fra chauffør til funktionær med skjulte markeringer: spørg pr. markering (spec 3.3)
+  const switchedToOffice = isFunktionaer && _empOriginalKind !== FUNKTIONAER;
+  const hiddenFlags = [
+    ["afloeser", "Afløser"], ["fast_bil", "Fast bil"], ["ot_extra_alle_timer", "Særaftale: Øvrig overtid for alle timer"],
+  ].filter(([key]) => body[key]);
+  if (switchedToOffice && hiddenFlags.length) {
+    _showEmpHiddenFlags(id, body, hiddenFlags);
+    return;
+  }
+  await _continueSaveEmployee(id, body);
+}
+
+async function _continueSaveEmployee(id, body) {
   if (!id) {
     try {
       const all = await GET("/api/employees?active_only=false");
@@ -3731,6 +3991,41 @@ async function _saveEmployee(id, body) {
     await loadEmployees();
     fillEmployeeFilter();
   } catch (e) { toast(e.message, "error"); }
+}
+
+let _pendingHiddenFlags = null;
+
+function _showEmpHiddenFlags(id, body, flags) {
+  _pendingHiddenFlags = { id, body, flags };
+  const name = `${body.first_name} ${body.last_name}`;
+  document.getElementById("emp-hidden-flags-body").innerHTML = `
+    <p style="font-size:14px;margin-bottom:12px">
+      <strong>${h(name)}</strong> har stadig følgende markeringer fra chauffør-tiden. Vælg for hver, om den skal beholdes eller fjernes.
+    </p>
+    ${flags.map(([key, label]) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border)">
+        <span style="font-size:13px">${h(label)}</span>
+        <span style="display:flex;gap:14px;font-size:13px">
+          <label style="display:flex;gap:4px;align-items:center;cursor:pointer"><input type="radio" name="hf-${key}" value="keep" checked> Behold</label>
+          <label style="display:flex;gap:4px;align-items:center;cursor:pointer"><input type="radio" name="hf-${key}" value="remove"> Fjern</label>
+        </span>
+      </div>`).join("")}
+  `;
+  openModal("modal-emp-hidden-flags");
+}
+
+async function confirmEmpHiddenFlags() {
+  if (!_pendingHiddenFlags) return;
+  const { id, body, flags } = _pendingHiddenFlags;
+  for (const [key] of flags) {
+    if (document.querySelector(`input[name="hf-${key}"]:checked`)?.value === "remove") {
+      body[key] = false;
+      if (key === "fast_bil") body.fast_bil_vehicle_id = null;
+    }
+  }
+  _pendingHiddenFlags = null;
+  closeModal("modal-emp-hidden-flags");
+  await _continueSaveEmployee(id, body);
 }
 
 let _pendingEmployeeBody = null;
@@ -3848,6 +4143,49 @@ async function checkParagraf56Alerts() {
     openModal("modal-paragraf56-alert");
   } catch (e) {
     console.error("§56-advarsel check fejlede:", e);
+  }
+}
+
+// ── Jubilæum / elev / fødselsdag ───────────────────────────────────────────
+const _MILESTONE_TITLES = {
+  birthday: "&#127874; Rund fødselsdag",
+  jubilee:  "&#127942; Jubilæum",
+  elev:     "&#127891; Elevtid slutter",
+};
+
+async function dismissMilestoneAlert(employeeId, alertKey) {
+  try {
+    await POST(`/api/employees/${employeeId}/dismiss-milestone-alert`, { alert_key: alertKey });
+  } catch (e) {
+    console.error("Kunne ikke gemme afvisning af advarsel:", e);
+  }
+  closeModal("modal-milestone-alert");
+}
+
+async function checkMilestoneAlerts() {
+  if (!["birthday_alert", "jubilee_alert", "elev_alert"].some(_hasPerm)) return;
+  try {
+    const alerts = await GET("/api/employees/milestone-alerts");
+    if (alerts.length === 0) return;
+    const a = alerts[0];
+    document.getElementById("milestone-alert-title").innerHTML = _MILESTONE_TITLES[a.kind] || "&#128197; Mærkedag";
+    document.getElementById("milestone-alert-body").innerHTML = `
+      <p style="font-size:14px;margin-bottom:8px">
+        Medarbejder <strong>${h(a.employee_name)} (${h(a.employee_number)})</strong> ${h(a.label)}
+        den ${formatDateShort(a.event_date)}.
+      </p>
+      ${alerts.length > 1 ? `<p style="font-size:12px;color:var(--text-light);margin-top:8px">+ ${alerts.length - 1} flere.</p>` : ""}
+    `;
+    document.getElementById("btn-goto-employee-milestone").onclick = async () => {
+      closeModal("modal-milestone-alert");
+      setView("employees");
+      await loadEmployees();
+      openEditEmployee(a.employee_id);
+    };
+    document.getElementById("btn-milestone-alert-ok").onclick = () => dismissMilestoneAlert(a.employee_id, a.alert_key);
+    openModal("modal-milestone-alert");
+  } catch (e) {
+    console.error("Mærkedags-advarsel check fejlede:", e);
   }
 }
 
@@ -5289,7 +5627,7 @@ async function deleteRole(roleId, displayName) {
 // ── Stamdata ────────────────────────────────────────────────────────────────
 
 function switchStamdataTab(tab) {
-  ["agreement", "overtime", "supplement", "paytype", "absence", "cvr", "holiday", "dispatcher", "agreementkind", "autoapproval"].forEach(t => {
+  ["agreement", "overtime", "supplement", "paytype", "absence", "cvr", "holiday", "dispatcher", "agreementkind", "position", "autoapproval"].forEach(t => {
     const pane = document.getElementById(`sd-pane-${t}`);
     const btn  = document.getElementById(`sd-tab-${t}`);
     if (pane) pane.style.display = t === tab ? "" : "none";
@@ -5308,6 +5646,7 @@ function switchStamdataTab(tab) {
   document.getElementById("btn-stamdata-add-holiday").style.display    = tab === "holiday"    ? "" : "none";
   document.getElementById("btn-stamdata-add-dispatcher").style.display = tab === "dispatcher" ? "" : "none";
   document.getElementById("btn-stamdata-add-agreementkind").style.display = tab === "agreementkind" ? "" : "none";
+  document.getElementById("btn-stamdata-add-position").style.display = tab === "position" ? "" : "none";
 }
 
 async function loadStamdata() {
@@ -5322,6 +5661,7 @@ async function loadStamdata() {
     loadStamdataHolidays(),
     loadStamdataDispatcherGroups(),
     loadStamdataAgreementKinds(),
+    loadStamdataPositions(),
     loadStamdataAutoApproval(),
   ]);
 }
@@ -5742,6 +6082,61 @@ async function deleteStamdataAbsence(id, label) {
     await DEL(`/api/stamdata/absence-types/${id}`);
     toast("Fraværstype slettet");
     await loadStamdataAbsenceTypes();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+// ── Stillinger (stamdata) ─────────────────────────────────────────────────
+
+async function loadStamdataPositions() {
+  const tbody = document.getElementById("stamdata-position-tbody");
+  if (!tbody) return;
+  try {
+    const rows = await GET("/api/stamdata/positions");
+    tbody.innerHTML = rows.length ? rows.map(r => `
+      <tr style="border-bottom:1px solid var(--border);background:#fff">
+        <td style="padding:10px 14px">${h(r.name)}</td>
+        <td style="padding:10px 14px;text-align:center">${r.employee_count}</td>
+        <td style="padding:10px 14px;text-align:center">
+          <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px;margin-right:4px"
+                  onclick="openStamdataPositionModal(${r.id},${jq(r.name)})">Rediger</button>
+          <button class="btn btn-danger" style="font-size:12px;padding:4px 10px"
+                  onclick="deleteStamdataPosition(${r.id},${jq(r.name)})">Slet</button>
+        </td>
+      </tr>`).join("")
+      : `<tr><td colspan="3" style="padding:24px;text-align:center;color:var(--text-light)">Ingen stillinger endnu</td></tr>`;
+  } catch (e) { tbody.innerHTML = `<tr><td colspan="3" style="padding:24px;text-align:center;color:var(--danger)">${h(e.message)}</td></tr>`; }
+}
+
+function openStamdataPositionModal(id, name) {
+  document.getElementById("stamdata-position-id").value = id || "";
+  document.getElementById("stamdata-position-name").value = name || "";
+  document.getElementById("stamdata-position-title").textContent = id ? "Rediger stilling" : "Ny stilling";
+  openModal("modal-stamdata-position");
+}
+
+async function confirmStamdataPosition() {
+  const id = document.getElementById("stamdata-position-id").value;
+  const name = document.getElementById("stamdata-position-name").value.trim();
+  if (!name) { toast("Navn er påkrævet", "error"); return; }
+  try {
+    if (id) {
+      await PATCH(`/api/stamdata/positions/${id}`, { name });
+      toast("Stilling opdateret");
+    } else {
+      await POST("/api/stamdata/positions", { name });
+      toast("Stilling oprettet");
+    }
+    closeModal("modal-stamdata-position");
+    await loadStamdataPositions();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+async function deleteStamdataPosition(id, name) {
+  if (!confirm(`Slet stillingen "${name}"?`)) return;
+  try {
+    await DEL(`/api/stamdata/positions/${id}`);
+    toast("Stilling slettet");
+    await loadStamdataPositions();
   } catch (e) { toast(e.message, "error"); }
 }
 
@@ -6447,6 +6842,7 @@ async function loadApp() {
   await setView(_firstPermittedView());
   await checkAnciennitetsAlerts();
   await checkParagraf56Alerts();
+  await checkMilestoneAlerts();
 }
 
 // Første menupunkt brugeren har adgang til – Aktiviteter hvis 'Se aktivitetskalender',
@@ -6495,6 +6891,8 @@ async function init() {
   document.getElementById("show-inactive")?.addEventListener("change", loadEmployees);
   document.getElementById("employee-search")?.addEventListener("input", renderEmployeeList);
   document.getElementById("employee-filter-dispatcher-group")?.addEventListener("change", renderEmployeeList);
+  ["employee-filter-position", "employee-filter-personaleforening", "employee-filter-natarbejde", "employee-filter-elev"]
+    .forEach(id => document.getElementById(id)?.addEventListener("change", renderEmployeeList));
   document.getElementById("vehicle-search")?.addEventListener("input", renderVehicleList);
   document.getElementById("supplement-employee-search")?.addEventListener("input", renderSupplementEmployeeList);
 

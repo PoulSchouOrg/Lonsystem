@@ -359,14 +359,34 @@
 
     <!-- ══════════════ EMPLOYEES VIEW ══════════════ -->
     <div class="view hidden" data-view="employees">
-      <div class="toolbar">
+      <div class="toolbar" style="flex-wrap:wrap;gap:8px">
         <h2 style="font-size:16px;font-weight:600">Medarbejdere</h2>
         <div class="spacer"></div>
         <button class="btn btn-primary" onclick="openParagraf56ListModal()">§56</button>
-        <input type="text" id="employee-search" placeholder="Søg navn eller lønnr…"
+        <button class="btn btn-secondary" id="btn-employee-view-toggle" data-perm-require="employee_table_view" onclick="toggleEmployeeView()">Tabel</button>
+        <button class="btn btn-secondary" id="btn-employee-export" style="display:none" onclick="exportEmployeesXlsx()">Eksportér til Excel</button>
+        <input type="text" id="employee-search" placeholder="Søg navn, lønnr. eller telefon…"
                style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:220px">
-        <select id="employee-filter-dispatcher-group" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:180px">
+        <select id="employee-filter-dispatcher-group" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:170px">
           <option value="">Alle afdelinger</option>
+        </select>
+        <select id="employee-filter-position" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:160px">
+          <option value="">Alle stillinger</option>
+        </select>
+        <select id="employee-filter-personaleforening" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:150px">
+          <option value="">Personaleforening</option>
+          <option value="1">Medlem</option>
+          <option value="0">Ikke medlem</option>
+        </select>
+        <select id="employee-filter-natarbejde" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:150px">
+          <option value="">Natarbejdetillæg</option>
+          <option value="1">Ja</option>
+          <option value="0">Nej</option>
+        </select>
+        <select id="employee-filter-elev" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:120px">
+          <option value="">Elev</option>
+          <option value="1">Elev</option>
+          <option value="0">Ikke elev</option>
         </select>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
           <input type="checkbox" id="show-inactive"> Vis inaktive
@@ -513,6 +533,7 @@
         <button id="btn-stamdata-add-supplement" class="btn btn-primary" style="display:none" onclick="openNewRateModal('supplement')">+ Tilføj</button>
         <button id="btn-stamdata-add-paytype" class="btn btn-primary" style="display:none" onclick="openNewPayTypeModal()">+ Tilføj</button>
         <button id="btn-stamdata-add-absence" class="btn btn-primary" style="display:none" onclick="openStamdataAbsenceModal()">+ Tilføj</button>
+        <button id="btn-stamdata-add-position" class="btn btn-primary" style="display:none" onclick="openStamdataPositionModal()">+ Tilføj stilling</button>
         <button id="btn-stamdata-add-cvr" class="btn btn-primary" style="display:none" onclick="openNewCvrModal()">+ Tilføj</button>
         <button id="btn-stamdata-add-holiday" class="btn btn-primary" style="display:none" onclick="openNewHolidayModal()">+ Tilføj</button>
         <button id="btn-stamdata-add-dispatcher" class="btn btn-primary" style="display:none" onclick="openStamdataDispatcherModal()">+ Tilføj</button>
@@ -557,6 +578,10 @@
         <button id="sd-tab-agreementkind" onclick="switchStamdataTab('agreementkind')"
                 style="padding:7px 18px;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;background:transparent;font-size:13px;font-weight:600;color:var(--text-light);cursor:pointer">
           Aftale
+        </button>
+        <button id="sd-tab-position" onclick="switchStamdataTab('position')"
+                style="padding:7px 18px;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;background:transparent;font-size:13px;font-weight:600;color:var(--text-light);cursor:pointer">
+          Stillinger
         </button>
         <button id="sd-tab-autoapproval" onclick="switchStamdataTab('autoapproval')"
                 style="padding:7px 18px;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;background:transparent;font-size:13px;font-weight:600;color:var(--text-light);cursor:pointer"
@@ -628,6 +653,22 @@
             </thead>
             <tbody id="stamdata-absence-tbody">
               <tr><td colspan="4" style="padding:24px;text-align:center;color:var(--text-light)">Indlæser...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Stillinger -->
+        <div id="sd-pane-position" style="display:none">
+          <table style="width:100%;border-collapse:collapse;font-size:14px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+            <thead>
+              <tr style="background:var(--primary);color:#fff">
+                <th style="padding:10px 14px;text-align:left;font-weight:600">Navn</th>
+                <th style="padding:10px 14px;text-align:center;font-weight:600">Medarbejdere</th>
+                <th style="padding:10px 14px;text-align:center;font-weight:600">Handlinger</th>
+              </tr>
+            </thead>
+            <tbody id="stamdata-position-tbody">
+              <tr><td colspan="3" style="padding:24px;text-align:center;color:var(--text-light)">Indlæser...</td></tr>
             </tbody>
           </table>
         </div>
@@ -818,6 +859,21 @@
       <button class="btn btn-secondary" onclick="closeModal('modal-paragraf56-alert')">Luk</button>
       <button class="btn btn-warning" id="btn-paragraf56-alert-done">Set – afvis</button>
       <button class="btn btn-primary" id="btn-goto-employee-paragraf56">Gå til medarbejder</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-milestone-alert" class="modal-overlay">
+  <div class="modal" style="width:460px">
+    <div class="modal-header">
+      <h2 id="milestone-alert-title">&#128197; Mærkedag</h2>
+      <button class="modal-close" onclick="closeModal('modal-milestone-alert')">&#215;</button>
+    </div>
+    <div class="modal-body" id="milestone-alert-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-milestone-alert')">Luk</button>
+      <button class="btn btn-warning" id="btn-milestone-alert-ok">OK</button>
+      <button class="btn btn-primary" id="btn-goto-employee-milestone">Gå til medarbejder</button>
     </div>
   </div>
 </div>
@@ -1469,17 +1525,23 @@
       <div class="form-row">
         <div class="form-group">
           <label>Lønnummer <span style="color:var(--danger)">*</span></label>
-          <input type="text" id="emp-number" placeholder="Fx 001" inputmode="numeric">
+          <input type="text" id="emp-number" placeholder="Fx 34629" inputmode="numeric" onblur="checkEmployeeNumber()">
+          <div id="emp-number-error" class="form-hint" style="display:none;color:var(--danger)"></div>
         </div>
         <div class="form-group" id="emp-card-group">
-          <label>Førerkortnummer</label>
+          <label>Førerkortnummer <span id="emp-card-star" style="color:var(--danger)">*</span></label>
           <input type="text" id="emp-card" placeholder="DK00000000000000">
         </div>
         <div class="form-group">
-          <label>Initialer</label>
+          <label>Initialer <span id="emp-initials-star" style="color:var(--danger);display:none">*</span></label>
           <input type="text" id="emp-initials" placeholder="Fx ABC" maxlength="10" style="text-transform:uppercase"
                  title="Bruges til at matche medarbejderen mod en login-bruger for 'redigér egen linje' i Vagtplan">
         </div>
+      </div>
+
+      <div class="form-group">
+        <label>Stilling <span style="color:var(--danger)">*</span></label>
+        <select id="emp-position"></select>
       </div>
 
       <div class="form-row">
@@ -1505,7 +1567,7 @@
       </div>
 
       <div class="form-group">
-        <label>E-mail</label>
+        <label><span id="emp-email-label">Email</span> <span style="color:var(--danger)">*</span></label>
         <input type="text" id="emp-email" placeholder="navn@firma.dk">
       </div>
 
@@ -1532,6 +1594,19 @@
         </div>
       </div>
 
+      <div class="form-row">
+        <div class="form-group">
+          <label>Anciennitetsdato</label>
+          <div id="emp-seniority"></div>
+          <div class="form-hint">Må være tom – bruges kun til jubilæumsadvarsel</div>
+        </div>
+        <div class="form-group">
+          <label>CPR-nummer</label>
+          <input type="text" id="emp-cpr" placeholder="ddmmåå-xxxx" maxlength="11" autocomplete="off">
+          <div class="form-hint" id="emp-cpr-hint" style="display:none">Maskeret – skriv et nyt fuldt CPR-nummer for at ændre det</div>
+        </div>
+      </div>
+
       <div class="form-row" style="grid-template-columns:1fr 1fr 1fr 1fr">
         <div class="form-group">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -1550,17 +1625,32 @@
         </div>
         <div class="form-group">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="emp-personaleforening" checked> Medlem af Personaleforening
+          </label>
+        </div>
+        <div class="form-group emp-driver-only">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="emp-elev" onchange="onElevChange()"> Elev
+          </label>
+        </div>
+        <div class="form-group emp-driver-only">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
             <input type="checkbox" id="emp-afloeser"> Afløser
           </label>
         </div>
-        <div class="form-group">
+        <div class="form-group emp-driver-only">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
             <input type="checkbox" id="emp-fast-bil" onchange="onFastBilChange()"> Fast bil
           </label>
         </div>
+        <div class="form-group emp-driver-only">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="emp-natarbejde"> Natarbejdetillæg
+          </label>
+        </div>
       </div>
 
-      <div class="form-row">
+      <div class="form-row emp-driver-only">
         <div class="form-group">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
             <input type="checkbox" id="emp-ot-extra-alle-timer"> Særaftale: Øvrig overtid for alle timer
@@ -1568,7 +1658,18 @@
         </div>
       </div>
 
-      <div class="form-row" id="emp-fast-bil-vehicle-row" style="display:none">
+      <div class="form-row" id="emp-elev-dates" style="display:none">
+        <div class="form-group">
+          <label>Elev startdato <span style="color:var(--danger)">*</span></label>
+          <div id="emp-elev-start"></div>
+        </div>
+        <div class="form-group">
+          <label>Elev slutdato <span style="color:var(--danger)">*</span></label>
+          <div id="emp-elev-end"></div>
+        </div>
+      </div>
+
+      <div class="form-row emp-driver-only" id="emp-fast-bil-vehicle-row" style="display:none">
         <div class="form-group" style="position:relative;flex:1">
           <label>Vognnummer</label>
           <input type="text" id="emp-fast-bil-vehicle-search" placeholder="Søg vognnr. eller reg.nr…" autocomplete="off">
@@ -1608,6 +1709,21 @@
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-employee')">Annuller</button>
       <button class="btn btn-primary" id="emp-save-btn" onclick="confirmEmployee()">Opret</button>
+    </div>
+  </div>
+</div>
+
+<!-- Skjulte chauffør-markeringer ved skift til funktionær -->
+<div id="modal-emp-hidden-flags" class="modal-overlay">
+  <div class="modal" style="width:480px">
+    <div class="modal-header">
+      <h2>Markeringer fra chauffør-tiden</h2>
+      <button class="modal-close" onclick="closeModal('modal-emp-hidden-flags')">&#215;</button>
+    </div>
+    <div class="modal-body" id="emp-hidden-flags-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-emp-hidden-flags')">Annuller</button>
+      <button class="btn btn-primary" onclick="confirmEmpHiddenFlags()">Gem</button>
     </div>
   </div>
 </div>
@@ -2128,6 +2244,26 @@
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-stamdata-absence')">Annuller</button>
       <button class="btn btn-primary" onclick="confirmStamdataAbsence()">Gem</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-stamdata-position" class="modal-overlay">
+  <div class="modal" style="width:420px">
+    <div class="modal-header">
+      <h2 id="stamdata-position-title">Stilling</h2>
+      <button class="modal-close" onclick="closeModal('modal-stamdata-position')">&#215;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="stamdata-position-id">
+      <div class="form-group">
+        <label>Navn</label>
+        <input type="text" id="stamdata-position-name" placeholder="fx Chauffør">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-stamdata-position')">Annuller</button>
+      <button class="btn btn-primary" onclick="confirmStamdataPosition()">Gem</button>
     </div>
   </div>
 </div>

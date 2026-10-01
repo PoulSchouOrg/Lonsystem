@@ -1,3 +1,6 @@
+import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
+from conftest import required_employee_fields
 from database.schemas import EmployeeCreate, WorkSchedule
 from datetime import date
 
@@ -34,6 +37,7 @@ def test_create_employee_persists_initials(db):
         agreement_type="Standardoverenskomst",
         hire_date=date(2026, 1, 1),
         initials="NYP",
+        **required_employee_fields("9999"),
     )
     user = AppUser(name="Test", initials="TST", role="admin", password_hash="x")
     resp = create_employee(body, current_user=user, db=db)

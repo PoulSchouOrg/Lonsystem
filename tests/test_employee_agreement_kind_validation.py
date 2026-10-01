@@ -1,3 +1,6 @@
+import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
+from conftest import required_employee_fields
 import pytest
 from datetime import date
 from fastapi import HTTPException
@@ -41,6 +44,7 @@ def _base_employee_body(**overrides):
         work_schedule=WorkSchedule(),
     )
     data.update(overrides)
+    data = {**required_employee_fields(data["employee_number"]), **data}
     return EmployeeCreate(**data)
 
 

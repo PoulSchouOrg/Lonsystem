@@ -34,17 +34,19 @@ def test_update_employee_clears_emptied_text_fields(db, employee):
         postal_code="8000", initials="ABC", tachograph_card_number="DK000000000001",
     ), current_user=_user(), db=db)
 
+    # Email og Førerkortnummer er påkrævede for chauffører (2026-10-01) og kan derfor
+    # ikke tømmes – se test_employee_register_fields.py::test_update_cannot_blank_required_field.
     resp = update_employee(employee.id, EmployeeUpdate(
-        email=None, phone=None, mobile=None, address=None,
-        postal_code=None, initials=None, tachograph_card_number=None,
+        phone=None, mobile=None, address=None,
+        postal_code=None, initials=None,
     ), current_user=_user(), db=db)
 
-    assert resp.email is None
     assert resp.phone is None
     assert resp.mobile is None
     assert resp.address is None
     assert resp.postal_code is None
-    assert resp.tachograph_card_number is None
+    assert resp.email == "a@b.dk"
+    assert resp.tachograph_card_number == "DK000000000001"
     db.refresh(employee)
     assert employee.initials is None
 

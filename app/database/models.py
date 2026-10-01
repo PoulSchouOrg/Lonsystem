@@ -55,6 +55,14 @@ def default_work_schedule():
     return {"even": [0, 0, 0, 0, 0, 0, 0], "odd": [0, 0, 0, 0, 0, 0, 0]}
 
 
+class MasterPosition(Base):
+    """Stilling – valgmuligheder til medarbejderens Stilling-felt (Stamdata → Stillinger)."""
+    __tablename__ = "master_positions"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), unique=True, nullable=False)
+
+
 class Employee(Base):
     __tablename__ = "employees"
 
@@ -101,6 +109,16 @@ class Employee(Base):
     # "Vognnummer ved fravær" – default vognnummer når der oprettes fravær for medarbejderen
     absence_vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True)
     absence_vehicle = relationship("Vehicle", foreign_keys=[absence_vehicle_id])
+    # Medarbejderregister-udvidelse 2026-10-01 (se docs/superpowers/specs/2026-10-01-medarbejderregister.md)
+    position_id = Column(Integer, ForeignKey("master_positions.id"), nullable=True)
+    position = relationship("MasterPosition")
+    seniority_date = Column(Date, nullable=True)      # Anciennitetsdato – kun til jubilæumsadvarsel
+    cpr_number = Column(String(11), nullable=True)    # ddmmåå-xxxx – maskeres uden 'view_cpr'
+    elev = Column(Boolean, default=False, nullable=False)
+    elev_start_date = Column(Date, nullable=True)
+    elev_end_date = Column(Date, nullable=True)
+    personaleforening = Column(Boolean, default=True, nullable=False)
+    natarbejde_tillaeg = Column(Boolean, default=False, nullable=False)  # kun til filtrering
 
     @property
     def name(self) -> str:
@@ -113,7 +131,7 @@ class Paragraf56AlertDismissal(Base):
     id = Column(Integer, primary_key=True)
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("app_users.id"), nullable=False)
-    alert_type = Column(String(20), nullable=False)  # "upcoming" | "expired"
+    alert_type = Column(String(20), nullable=False)  # "upcoming" | "expired" | "birthday_40" | "jubilee_25" | "elev_ÅÅÅÅ-MM-DD"
     dismissed_at = Column(DateTime, server_default=func.now())
 
     __table_args__ = (

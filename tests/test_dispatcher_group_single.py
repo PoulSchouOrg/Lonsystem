@@ -1,5 +1,8 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
+sys.path.insert(0, os.path.dirname(__file__))
+
+from conftest import required_employee_fields
 
 from database.models import DispatcherGroup, Employee, Vehicle
 
@@ -72,6 +75,7 @@ def _employee_body(**overrides):
         work_schedule=WorkSchedule(),
     )
     data.update(overrides)
+    data = {**required_employee_fields(data["employee_number"]), **data}
     return EmployeeCreate(**data)
 
 

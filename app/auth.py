@@ -34,6 +34,12 @@ ALL_PERMISSIONS = {
     "payroll_settlement_export": "Lønafregning (eksport)",
     "dagsplan_view":       "Se dagsplan",
     "dagsplan_edit":       "Redigere dagsplan",
+    "view_cpr":            "Se CPR-nummer",
+    "jubilee_alert":       "Jubilæumsadvarsel",
+    "elev_alert":          "Elevadvarsel",
+    "birthday_alert":      "Fødselsdagsadvarsel",
+    "employee_table_view": "Tabelvisning af medarbejdere",
+    "employee_export":     "Eksportér medarbejderregister",
 }
 
 

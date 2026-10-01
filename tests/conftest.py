@@ -34,9 +34,22 @@ def db():
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     session = Session()
+    from database.models import MasterPosition
+    session.add(MasterPosition(id=1, name="Testchauffør"))
+    session.commit()
     yield session
     session.close()
     Base.metadata.drop_all(engine)
+
+
+def required_employee_fields(employee_number: str) -> dict:
+    """Felter der er påkrævede ved oprettelse af en chauffør (2026-10-01).
+    Førerkortnummeret afledes af lønnummeret, så det er unikt pr. medarbejder."""
+    return {
+        "position_id": 1,
+        "email": "test@example.dk",
+        "tachograph_card_number": f"DKTEST{employee_number}",
+    }
 
 
 @pytest.fixture

@@ -58,6 +58,14 @@ class EmployeeCreate(BaseModel):
     ot_extra_alle_timer: bool = False
     fast_bil_vehicle_id: Optional[int] = None
     absence_vehicle_id: Optional[int] = None
+    position_id: Optional[int] = None
+    seniority_date: Optional[date] = None
+    cpr_number: Optional[str] = None
+    elev: bool = False
+    elev_start_date: Optional[date] = None
+    elev_end_date: Optional[date] = None
+    personaleforening: bool = True
+    natarbejde_tillaeg: bool = False
 
 
 class EmployeeUpdate(BaseModel):
@@ -88,6 +96,14 @@ class EmployeeUpdate(BaseModel):
     ot_extra_alle_timer: Optional[bool] = None
     fast_bil_vehicle_id: Optional[int] = None
     absence_vehicle_id: Optional[int] = None
+    position_id: Optional[int] = None
+    seniority_date: Optional[date] = None
+    cpr_number: Optional[str] = None
+    elev: Optional[bool] = None
+    elev_start_date: Optional[date] = None
+    elev_end_date: Optional[date] = None
+    personaleforening: Optional[bool] = None
+    natarbejde_tillaeg: Optional[bool] = None
 
 
 class EmployeeResponse(BaseModel):
@@ -126,6 +142,15 @@ class EmployeeResponse(BaseModel):
     fast_bil_vehicle_number: Optional[str] = None
     absence_vehicle_id: Optional[int] = None
     absence_vehicle_number: Optional[str] = None
+    position_id: Optional[int] = None
+    position_name: Optional[str] = None
+    seniority_date: Optional[date] = None
+    cpr_number: Optional[str] = None
+    elev: bool = False
+    elev_start_date: Optional[date] = None
+    elev_end_date: Optional[date] = None
+    personaleforening: bool = True
+    natarbejde_tillaeg: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -305,6 +330,24 @@ class Paragraf56AlertsResponse(BaseModel):
 
 class Paragraf56AlertDismiss(BaseModel):
     alert_type: str
+
+
+class MilestoneAlert(BaseModel):
+    employee_id: int
+    employee_name: str
+    employee_number: str
+    kind: str          # "birthday" | "jubilee" | "elev"
+    alert_key: str     # fx "birthday_40", "jubilee_25", "elev_2029-07-31"
+    event_date: date
+    label: str         # dansk tekst til popup'en
+
+
+class MilestoneAlertDismiss(BaseModel):
+    alert_key: str
+
+
+class EmployeeExportRequest(BaseModel):
+    employee_ids: list[int]   # i den rækkefølge tabellen viser dem
 
 
 class VehicleCreate(BaseModel):

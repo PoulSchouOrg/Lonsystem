@@ -302,6 +302,13 @@ tbody tr.status-deactivated { border-left: 3px solid var(--deactivated); opacity
 }
 .grid-table tbody td.weekend { background: rgba(0,0,0,.1); }
 .grid-table tbody td.emp-cell.afloeser-highlight { background: #d4edcc; }
+/* Elev (2026-10-01) – gul, så den kan skelnes fra afløser. Elev vinder over afløser. */
+.grid-table tbody td.emp-cell.elev-highlight { background: #fff3b8; }
+.emp-table { width:100%; border-collapse:collapse; font-size:13px; background:#fff; border-radius:8px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+.emp-table th { background:var(--primary); color:#fff; padding:9px 10px; text-align:left; font-weight:600; cursor:pointer; white-space:nowrap; user-select:none; }
+.emp-table td { padding:8px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.emp-table tr.elev-row td { background:#fff3b8; }
+.emp-table tbody tr { cursor:pointer; }
 /* Farve sættes på td (ikke kun tr) med samme selector-specificitet som
    zebra-stripingen ovenfor (".grid-table tbody tr:nth-child(even) td") og
    defineret SENERE i filen - ellers vinder zebra-stripingens td-baggrund på

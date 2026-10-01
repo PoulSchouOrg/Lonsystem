@@ -14,7 +14,7 @@ from database.models import (
     AppUser, Employee, DispatcherGroup, Vehicle,
     MasterAgreementType, MasterAgreementKind, MasterOvertimeRate,
     MasterSupplementRate, MasterPayType, MasterAbsenceType, MasterCvrNumber,
-    Holiday,
+    MasterPosition, Holiday,
 )
 from database.session import get_db
 from utils.natural_sort import natural_key
@@ -523,6 +523,72 @@ def delete_absence_type(
         raise HTTPException(404, "Ikke fundet")
     log_action(db, current_user, "stamdata_delete", "absence_type", row.id,
                f"Slettet fraværstype: {row.label}")
+    db.delete(row)
+    db.commit()
+
+
+# ── Stillinger ────────────────────────────────────────────────────────────
+
+class PositionBody(BaseModel):
+    name: str
+
+
+def _position_row(db: Session, r: MasterPosition) -> dict:
+    count = db.query(Employee).filter(Employee.position_id == r.id).count()
+    return {"id": r.id, "name": r.name, "employee_count": count}
+
+
+def _clean_position_name(db: Session, name: str, exclude_id: Optional[int] = None) -> str:
+    clean = (name or "").strip()
+    if not clean:
+        raise HTTPException(400, "Navn er påkrævet")
+    for other in db.query(MasterPosition).all():
+        if other.id != exclude_id and other.name.lower() == clean.lower():
+            raise HTTPException(400, "En stilling med dette navn eksisterer allerede")
+    return clean
+
+
+@router.get("/positions")
+def list_positions_stamdata(current_user: AppUser = Depends(_access), db: Session = Depends(get_db)):
+    rows = sorted(db.query(MasterPosition).all(), key=lambda r: r.name.lower())
+    return [_position_row(db, r) for r in rows]
+
+
+@router.post("/positions", status_code=201)
+def create_position(body: PositionBody, current_user: AppUser = Depends(_access),
+                    db: Session = Depends(get_db)):
+    row = MasterPosition(name=_clean_position_name(db, body.name))
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    log_action(db, current_user, "stamdata_create", "position", row.id, f"Oprettet stilling: {row.name}")
+    db.commit()
+    return _position_row(db, row)
+
+
+@router.patch("/positions/{position_id}")
+def update_position(position_id: int, body: PositionBody, current_user: AppUser = Depends(_access),
+                    db: Session = Depends(get_db)):
+    row = db.query(MasterPosition).filter(MasterPosition.id == position_id).first()
+    if not row:
+        raise HTTPException(404, "Ikke fundet")
+    row.name = _clean_position_name(db, body.name, exclude_id=position_id)
+    db.commit()
+    log_action(db, current_user, "stamdata_update", "position", row.id, f"Stilling omdøbt: {row.name}")
+    db.commit()
+    return _position_row(db, row)
+
+
+@router.delete("/positions/{position_id}", status_code=204)
+def delete_position(position_id: int, current_user: AppUser = Depends(_access),
+                    db: Session = Depends(get_db)):
+    row = db.query(MasterPosition).filter(MasterPosition.id == position_id).first()
+    if not row:
+        raise HTTPException(404, "Ikke fundet")
+    in_use = db.query(Employee).filter(Employee.position_id == position_id).count()
+    if in_use:
+        raise HTTPException(400, f"Stillingen bruges af {in_use} medarbejder(e) og kan ikke slettes")
+    log_action(db, current_user, "stamdata_delete", "position", row.id, f"Slettet stilling: {row.name}")
     db.delete(row)
     db.commit()
 

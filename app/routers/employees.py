@@ -1,24 +1,35 @@
+import io
 import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
 
+import openpyxl
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from openpyxl.styles import Font, PatternFill
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, require_any_permission, require_permission, user_has_any_permission
+from auth import get_current_user, log_action, require_any_permission, require_permission, user_has_any_permission, user_has_permission
 from calculators.rates_loader import (
     load_agreement_types_from_db,
     seniority_variant_exists_from_db,
 )
 from database.session import get_db
+from utils.employee_rules import (
+    cpr_birthdate, in_alert_window, is_masked_cpr, jubilee_alert, mask_cpr,
+    next_employee_number, round_birthday_alert, validate_cpr,
+)
 from utils.natural_sort import natural_key
-from database.models import AppUser, DispatcherGroup, Employee, MasterAgreementKind, Paragraf56AlertDismissal, Vehicle
+from database.models import AppUser, DispatcherGroup, Employee, MasterAgreementKind, MasterPosition, Paragraf56AlertDismissal, Vehicle
 from database.schemas import (
     AnciennitetsAlert,
     DispatcherGroupResponse,
     EmployeeCreate,
+    EmployeeExportRequest,
     EmployeeResponse,
     EmployeeUpdate,
+    MilestoneAlert,
+    MilestoneAlertDismiss,
     Paragraf56Alert,
     Paragraf56AlertDismiss,
     Paragraf56AlertsResponse,
@@ -114,6 +125,15 @@ def _to_response(emp: Employee, db) -> EmployeeResponse:
         fast_bil_vehicle_number=emp.fast_bil_vehicle.vehicle_number if emp.fast_bil_vehicle else None,
         absence_vehicle_id=emp.absence_vehicle_id,
         absence_vehicle_number=emp.absence_vehicle.vehicle_number if emp.absence_vehicle else None,
+        position_id=emp.position_id,
+        position_name=emp.position.name if emp.position else None,
+        seniority_date=emp.seniority_date,
+        cpr_number=emp.cpr_number,
+        elev=emp.elev,
+        elev_start_date=emp.elev_start_date,
+        elev_end_date=emp.elev_end_date,
+        personaleforening=emp.personaleforening,
+        natarbejde_tillaeg=emp.natarbejde_tillaeg,
     )
 
 
@@ -126,18 +146,27 @@ _employee_list_access = require_any_permission(
 )
 _PRIVATE_EMPLOYEE_FIELDS = (
     "tachograph_card_number", "address", "postal_code", "email", "phone", "mobile",
-    "hourly_rate", "cvr_number",
+    "hourly_rate", "cvr_number", "cpr_number",
 )
+
+
+def _apply_cpr_mask(resp: EmployeeResponse, db, current_user: AppUser) -> EmployeeResponse:
+    """De sidste fire cifre i CPR sendes kun til brugere med 'Se CPR-nummer'."""
+    if resp.cpr_number and not user_has_permission(db, current_user, "view_cpr"):
+        resp.cpr_number = mask_cpr(resp.cpr_number)
+    return resp
 
 
 def _visible_response(emp: Employee, db, current_user: AppUser) -> EmployeeResponse:
     """Fuld stamdata kun med 'Se medarbejdere'/'Tilføj medarbejdere' – ellers
-    udelades kontakt-, løn- og førerkortoplysninger."""
+    udelades kontakt-, løn-, førerkort- og CPR-oplysninger. CPR maskeres desuden
+    uden 'Se CPR-nummer'."""
     resp = _to_response(emp, db)
     if not user_has_any_permission(db, current_user, "view_employees", "manage_employees"):
         for field in _PRIVATE_EMPLOYEE_FIELDS:
             setattr(resp, field, None)
-    return resp
+        return resp
+    return _apply_cpr_mask(resp, db, current_user)
 
 
 @router.get("", response_model=list[EmployeeResponse])
@@ -206,6 +235,47 @@ def _resolve_vehicle_id(db: Session, vehicle_id: Optional[int]) -> Optional[int]
     return vehicle_id
 
 
+FUNKTIONAER = "funktionaer"
+
+
+def _blank(v) -> bool:
+    return v is None or (isinstance(v, str) and not v.strip())
+
+
+def _validate_employee_fields(db: Session, kind: str, values: dict, check: set) -> None:
+    """Påkrævede felter pr. medarbejdertype (spec afsnit 3). Kun felter i `check`
+    kontrolleres – ved PATCH er det de felter, der sendes med, så gamle
+    medarbejdere først skal udfylde dem næste gang hele formularen gemmes.
+    Skjulte felter (fx førerkort for funktionærer) er aldrig påkrævede."""
+    is_office = kind == FUNKTIONAER
+    required = {"position_id": "Stilling", "email": "Email"}
+    if is_office:
+        required["initials"] = "Initialer"
+    else:
+        required["tachograph_card_number"] = "Førerkortnummer"
+    missing = [label for field, label in required.items() if field in check and _blank(values.get(field))]
+    if missing:
+        raise HTTPException(400, f"Påkrævede felter mangler: {', '.join(missing)}")
+    if "position_id" in check and values.get("position_id") is not None:
+        if not db.query(MasterPosition).filter(MasterPosition.id == values["position_id"]).first():
+            raise HTTPException(400, f"Ukendt stilling-id: {values['position_id']}")
+    if not is_office and values.get("elev") and ({"elev", "elev_start_date", "elev_end_date"} & check):
+        start, end = values.get("elev_start_date"), values.get("elev_end_date")
+        if not start or not end:
+            raise HTTPException(400, "Start- og slutdato for elev skal udfyldes")
+        if end < start:
+            raise HTTPException(400, "Elev slutdato skal være efter startdato")
+
+
+def _clean_cpr(value: Optional[str]) -> Optional[str]:
+    if _blank(value):
+        return None
+    try:
+        return validate_cpr(value)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @router.post("", response_model=EmployeeResponse, status_code=201)
 def create_employee(body: EmployeeCreate,
                     current_user: AppUser = Depends(require_permission("manage_employees")),
@@ -225,6 +295,8 @@ def create_employee(body: EmployeeCreate,
     body.paragraf_56_start_date, body.paragraf_56_end_date = _validate_paragraf_56(
         body.paragraf_56, body.paragraf_56_start_date, body.paragraf_56_end_date
     )
+    body.cpr_number = _clean_cpr(body.cpr_number)
+    _validate_employee_fields(db, body.agreement_kind, body.model_dump(), set(EmployeeCreate.model_fields))
 
     data = body.model_dump(exclude={"dispatcher_group_id", "fast_bil_vehicle_id", "absence_vehicle_id"})
     data["work_schedule"] = body.work_schedule.model_dump()
@@ -235,7 +307,34 @@ def create_employee(body: EmployeeCreate,
     db.add(emp)
     db.commit()
     db.refresh(emp)
-    return _to_response(emp, db)
+    return _apply_cpr_mask(_to_response(emp, db), db, current_user)
+
+
+@router.get("/next-employee-number")
+def next_number(current_user: AppUser = Depends(require_permission("manage_employees")),
+                db: Session = Depends(get_db)):
+    """Forslag til lønnummer: højeste numeriske lønnummer >= 34000 plus 1 (aktive og inaktive)."""
+    numbers = [n for (n,) in db.query(Employee.employee_number).all()]
+    return {"suggestion": next_employee_number(numbers)}
+
+
+@router.get("/check-number")
+def check_number(number: str, exclude_id: Optional[int] = None,
+                 current_user: AppUser = Depends(require_permission("manage_employees")),
+                 db: Session = Depends(get_db)):
+    q = db.query(Employee).filter(Employee.employee_number == number.strip())
+    if exclude_id is not None:
+        q = q.filter(Employee.id != exclude_id)
+    emp = q.first()
+    return {"taken": emp is not None, "employee_name": emp.name if emp else None}
+
+
+@router.get("/positions")
+def list_positions(current_user: AppUser = Depends(_employee_list_access),
+                   db: Session = Depends(get_db)):
+    """Stillinger til medarbejder-modalens dropdown og registerets filter."""
+    rows = db.query(MasterPosition).all()
+    return [{"id": r.id, "name": r.name} for r in sorted(rows, key=lambda r: r.name.lower())]
 
 
 @router.get("/anciennitet-alerts", response_model=list[AnciennitetsAlert])
@@ -335,6 +434,131 @@ def dismiss_paragraf56_alert(employee_id: int, body: Paragraf56AlertDismiss,
         db.commit()
 
 
+_MILESTONE_PERMS = {"birthday": "birthday_alert", "jubilee": "jubilee_alert", "elev": "elev_alert"}
+
+
+def _milestone_alerts_for(emp: Employee, today: date) -> list:
+    """Alle aktuelle jubilæums-/elev-/fødselsdagsadvarsler for én medarbejder."""
+    out = []
+    if emp.cpr_number:
+        try:
+            hit = round_birthday_alert(cpr_birthdate(emp.cpr_number), today)
+        except ValueError:
+            hit = None
+        if hit:
+            age, when = hit
+            out.append(("birthday", f"birthday_{age}", when, f"fylder {age} år"))
+    hit = jubilee_alert(emp.seniority_date or emp.hire_date, today)
+    if hit:
+        years, when = hit
+        out.append(("jubilee", f"jubilee_{years}", when, f"har {years} års jubilæum"))
+    if (emp.agreement_kind != FUNKTIONAER and emp.elev and emp.elev_end_date
+            and in_alert_window(emp.elev_end_date, today)):
+        out.append(("elev", f"elev_{emp.elev_end_date.isoformat()}", emp.elev_end_date, "afslutter elevtiden"))
+    return out
+
+
+@router.get("/milestone-alerts", response_model=list[MilestoneAlert])
+def milestone_alerts(current_user: AppUser = Depends(require_any_permission(*_MILESTONE_PERMS.values())),
+                     db: Session = Depends(get_db), today: Optional[date] = None):
+    """Jubilæum (25/40/50 år), elev slutter og rund fødselsdag – fra en måned før til og
+    med dagen. Hver type kræver sin egen rettighed. Afvisning er pr. bruger."""
+    today = today or date.today()
+    allowed = {k for k, perm in _MILESTONE_PERMS.items() if user_has_permission(db, current_user, perm)}
+    dismissed = {
+        (d.employee_id, d.alert_type)
+        for d in db.query(Paragraf56AlertDismissal).filter(
+            Paragraf56AlertDismissal.user_id == current_user.id
+        ).all()
+    }
+    alerts = []
+    for emp in db.query(Employee).filter(Employee.active == True).all():
+        for kind, key, when, label in _milestone_alerts_for(emp, today):
+            if kind in allowed and (emp.id, key) not in dismissed:
+                alerts.append(MilestoneAlert(
+                    employee_id=emp.id, employee_name=emp.name, employee_number=emp.employee_number,
+                    kind=kind, alert_key=key, event_date=when, label=label,
+                ))
+    return sorted(alerts, key=lambda a: (a.event_date, a.employee_name))
+
+
+@router.post("/{employee_id}/dismiss-milestone-alert", status_code=204)
+def dismiss_milestone_alert(employee_id: int, body: MilestoneAlertDismiss,
+                            current_user: AppUser = Depends(require_any_permission(*_MILESTONE_PERMS.values())),
+                            db: Session = Depends(get_db)):
+    """'OK' i popup'en – advarslen kommer ikke igen for DENNE bruger og DENNE begivenhed."""
+    kind = body.alert_key.split("_", 1)[0]
+    if kind not in _MILESTONE_PERMS or "_" not in body.alert_key:
+        raise HTTPException(400, f"Ukendt advarsel: {body.alert_key}")
+    if not user_has_permission(db, current_user, _MILESTONE_PERMS[kind]):
+        raise HTTPException(403, "Ingen adgang")
+    exists = db.query(Paragraf56AlertDismissal).filter(
+        Paragraf56AlertDismissal.employee_id == employee_id,
+        Paragraf56AlertDismissal.user_id == current_user.id,
+        Paragraf56AlertDismissal.alert_type == body.alert_key,
+    ).first()
+    if not exists:
+        db.add(Paragraf56AlertDismissal(employee_id=employee_id, user_id=current_user.id,
+                                        alert_type=body.alert_key))
+        db.commit()
+
+
+EXPORT_HEADERS = [
+    "Lønnummer", "Navn", "Fuldlønnet", "Natarbejdetillæg", "Stilling", "Disponentgruppe",
+    "Ansættelsesdato", "Telefon", "Mobil", "Email", "Elev", "Elev start", "Elev slut",
+]
+
+
+def _dk_date(d: Optional[date]) -> Optional[str]:
+    return d.strftime("%d-%m-%Y") if d else None
+
+
+@router.post("/export-xlsx")
+def export_employees_xlsx(body: EmployeeExportRequest,
+                          current_user: AppUser = Depends(require_permission("employee_export")),
+                          db: Session = Depends(get_db)):
+    """Medarbejderregisterets tabelvisning som Excel. Rækkefølgen er klientens
+    (efter filtre/søgning/sortering). CPR kommer aldrig med."""
+    by_id = {e.id: e for e in db.query(Employee).filter(Employee.id.in_(body.employee_ids)).all()}
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Medarbejderregister"
+    ws.append(EXPORT_HEADERS)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="317423", end_color="317423", fill_type="solid")
+    for emp_id in body.employee_ids:
+        e = by_id.get(emp_id)
+        if not e:
+            continue
+        is_elev = bool(e.elev) and e.agreement_kind != FUNKTIONAER
+        ws.append([
+            e.employee_number, e.name,
+            "Ja" if e.fuldloennet else "Nej",
+            "Ja" if e.natarbejde_tillaeg else "Nej",
+            e.position.name if e.position else None,
+            e.dispatcher_group.name if e.dispatcher_group else None,
+            _dk_date(e.hire_date), e.phone, e.mobile, e.email,
+            "Ja" if is_elev else "Nej",
+            _dk_date(e.elev_start_date) if is_elev else None,
+            _dk_date(e.elev_end_date) if is_elev else None,
+        ])
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = max(12, max(len(str(c.value or "")) for c in col) + 2)
+    log_action(db, current_user, "employee_export", "employee", None,
+               f"Eksporteret medarbejderregister ({len(by_id)} medarbejdere)")
+    db.commit()
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"Medarbejderregister_{date.today().isoformat()}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/{employee_id}", response_model=EmployeeResponse)
 def get_employee(employee_id: int,
                  current_user: AppUser = Depends(_employee_list_access),
@@ -347,7 +571,8 @@ def get_employee(employee_id: int,
 
 _CLEARABLE_EMPLOYEE_FIELDS = (
     "tachograph_card_number", "initials", "address", "postal_code",
-    "email", "phone", "mobile",
+    "email", "phone", "mobile", "seniority_date", "elev_start_date", "elev_end_date",
+    "position_id",
 )
 
 
@@ -358,6 +583,21 @@ def update_employee(employee_id: int, body: EmployeeUpdate,
     emp = db.query(Employee).filter(Employee.id == employee_id).first()
     if not emp:
         raise HTTPException(404, "Medarbejder ikke fundet")
+    if body.employee_number and body.employee_number != emp.employee_number:
+        if db.query(Employee).filter(Employee.employee_number == body.employee_number,
+                                     Employee.id != emp.id).first():
+            raise HTTPException(400, "Lønnummer eksisterer allerede")
+    sent = set(body.model_fields_set)
+    # CPR: maskeret værdi (fra en bruger uden 'Se CPR-nummer') betyder "uændret"
+    cpr_sent = "cpr_number" in sent and not is_masked_cpr(body.cpr_number)
+    new_cpr = _clean_cpr(body.cpr_number) if cpr_sent else emp.cpr_number
+    sent.discard("cpr_number")
+    effective = {
+        c: (getattr(body, c) if c in sent else getattr(emp, c))
+        for c in ("position_id", "email", "initials", "tachograph_card_number",
+                  "elev", "elev_start_date", "elev_end_date")
+    }
+    _validate_employee_fields(db, body.agreement_kind or emp.agreement_kind, effective, sent)
     if body.agreement_kind and not db.query(MasterAgreementKind).filter(
         MasterAgreementKind.key == body.agreement_kind
     ).first():
@@ -375,7 +615,8 @@ def update_employee(employee_id: int, body: EmployeeUpdate,
         body.agreement_type = ""
     old_agreement_type = emp.agreement_type
     _paragraf56_excludes = {"dispatcher_group_id", "fast_bil_vehicle_id", "absence_vehicle_id",
-                            "paragraf_56", "paragraf_56_start_date", "paragraf_56_end_date"}
+                            "paragraf_56", "paragraf_56_start_date", "paragraf_56_end_date",
+                            "cpr_number"}
     for field_name, value in body.model_dump(exclude_none=True, exclude=_paragraf56_excludes).items():
         if field_name == "work_schedule":
             value = body.work_schedule.model_dump()
@@ -385,6 +626,8 @@ def update_employee(employee_id: int, body: EmployeeUpdate,
     for field_name in _CLEARABLE_EMPLOYEE_FIELDS:
         if field_name in body.model_fields_set and getattr(body, field_name) is None:
             setattr(emp, field_name, None)
+    if cpr_sent:
+        emp.cpr_number = new_cpr
     if "dispatcher_group_id" in body.model_fields_set:
         emp.dispatcher_group = _resolve_dispatcher_group(db, body.dispatcher_group_id)
     if "fast_bil_vehicle_id" in body.model_fields_set:
@@ -397,8 +640,9 @@ def update_employee(employee_id: int, body: EmployeeUpdate,
         )
         if end != emp.paragraf_56_end_date:
             db.query(Paragraf56AlertDismissal).filter(
-                Paragraf56AlertDismissal.employee_id == emp.id
-            ).delete()
+                Paragraf56AlertDismissal.employee_id == emp.id,
+                Paragraf56AlertDismissal.alert_type.in_(("upcoming", "expired")),
+            ).delete(synchronize_session=False)
         emp.paragraf_56 = bool(body.paragraf_56)
         emp.paragraf_56_start_date = start
         emp.paragraf_56_end_date = end
@@ -407,4 +651,4 @@ def update_employee(employee_id: int, body: EmployeeUpdate,
         emp.anciennitet_dismissed_at = None
     db.commit()
     db.refresh(emp)
-    return _to_response(emp, db)
+    return _apply_cpr_mask(_to_response(emp, db), db, current_user)
