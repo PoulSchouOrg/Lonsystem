@@ -3220,7 +3220,7 @@ function renderEmployeeList() {
       <div class="emp-avatar" style="${e.afloeser ? "background:var(--accent)" : ""}">${h(initials)}</div>
       <div class="emp-info">
         <div class="emp-name">${h(e.name)}</div>
-        <div class="emp-sub">Lønnr. ${h(e.employee_number)} · ${h(e.agreement_type)}${e.hourly_rate ? ` · ${e.hourly_rate.toFixed(2)} kr/t` : ""} · Ansat ${formatDateShort(e.hire_date)} (${e.months_employed} mdr.)</div>
+        <div class="emp-sub">Lønnr. ${h(e.employee_number)}</div>
       </div>
       ${e.active ? "" : `<span class="badge" style="background:#fee2e2;color:#dc2626">Inaktiv</span>`}
       ${state.currentUser?.permissions?.includes("manage_employees") ? `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); openEditEmployee(${e.id})">Rediger</button>` : ""}
