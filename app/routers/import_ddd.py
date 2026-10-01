@@ -238,6 +238,52 @@ def _vehicle_uses_json(act) -> list | None:
     return [[s.isoformat(), e.isoformat(), reg] for s, e, reg in act.vehicle_uses]
 
 
+def _baseline(a: Activity) -> tuple:
+    """(start, slut, segments, pauser) som OPRINDELIGT importeret, før evt.
+    manuel rettelse – det en genimport skal sammenlignes mod.
+
+    Sammenlign mod det oprindeligt importerede, ikke mod de nuværende gemte
+    værdier – ellers vil en genimport af uændret kildedata tolke en tidligere
+    manuel tids-/pauserettelse som en afvigelse og lydløst overskrive den
+    (bekræftet 2026-09-11: pause_intervals kan rettes manuelt via 'Ret
+    linje'/'Tilpas', men blev hidtil ikke husket her). Samme princip for
+    segments: en manuel pause->arbejde-rettelse ('Ret linje'/'Tilpas pause')
+    ændrer a.segments, men skal ikke få en reimport af uændret kildedata til at
+    ligne en afvigelse (bekræftet 2026-09-14: Alexander B. Knudsen og Claus
+    Ulrik Nicolaisen 9/9)."""
+    return (
+        a.original_start_time or a.start_time,
+        a.original_end_time or a.end_time,
+        a.original_segments if a.original_segments is not None else (a.segments or []),
+        a.original_pause_intervals if a.original_pause_intervals is not None else (a.pause_intervals or []),
+    )
+
+
+def _settled_line_covers(a: Activity, act: ParsedActivity,
+                         new_segments: list, new_pause_intervals: list) -> bool:
+    """Om en godkendt/deaktiveret linje allerede dækker udlæsningen fuldt, så
+    en genimport ikke tilføjer noget nyt: enten identisk med det oprindeligt
+    importerede, eller en forældet, ufuldstændig genlæsning af den.
+
+    Ufuldstændig genlæsning (bekræftet 2026-09-18: Alexander B. Knudsen 11/9):
+    scan_ddd_folder() genparser ALLE .ddd-filer under max_age_days ved hver
+    import, også en ældre, delvis udlæsning fra midt i en vagt der senere er
+    genindlæst fuldt og afgjort. Er den nye udlæsning markeret ufuldstændig,
+    starter den samme sted, slutter tidligere, og er dens segmenter/pauser et
+    rent præfiks af det allerede afgjorte, er der intet nyt at vise en bruger."""
+    start, end, segments, pauses = _baseline(a)
+    if (act.start_time == start and act.end_time == end
+            and new_segments == segments and new_pause_intervals == pauses):
+        return True
+    return bool(
+        act.is_likely_incomplete
+        and act.start_time == start
+        and act.end_time <= end
+        and segments[: len(new_segments)] == new_segments
+        and all(p in pauses for p in new_pause_intervals)
+    )
+
+
 def _import_activity(
     act: ParsedActivity, db: Session, employee: Employee | None,
     allow_closed_period: bool = False,
@@ -388,32 +434,8 @@ def _import_activity(
                     and not act.is_likely_incomplete
                 )
 
-                # Sammenlign mod det OPRINDELIGT importerede (før evt. manuel
-                # rettelse), ikke mod de nuværende gemte værdier – ellers vil en
-                # genimport af uændret kildedata tolke en tidligere manuel
-                # tids-/pauserettelse som en afvigelse og lydløst overskrive den
-                # (bekræftet 2026-09-11: pause_intervals kan rettes manuelt via
-                # 'Ret linje'/'Tilpas', men blev hidtil ikke husket her).
-                baseline_start = existing.original_start_time or existing.start_time
-                baseline_end = existing.original_end_time or existing.end_time
-                baseline_pauses = (
-                    existing.original_pause_intervals
-                    if existing.original_pause_intervals is not None
-                    else (existing.pause_intervals or [])
-                )
-                # Samme baseline-princip for segments: en manuel pause->arbejde-
-                # rettelse ('Ret linje'/'Tilpas pause') ændrer eksisterende.segments,
-                # men skal ikke få en reimport af uændret kildedata til at ligne en
-                # afvigelse (bekræftet 2026-09-14: Alexander B. Knudsen og Claus
-                # Ulrik Nicolaisen 9/9 – en genimport af samme fil som tidligere
-                # skabte igen nye dublet-linjer, udelukkende fordi segments (ikke
-                # tid/pauser) stadig blev sammenlignet mod den aktuelle, rettede
-                # værdi i stedet for det oprindeligt importerede).
-                baseline_segments = (
-                    existing.original_segments
-                    if existing.original_segments is not None
-                    else (existing.segments or [])
-                )
+                # Sammenlign mod det OPRINDELIGT importerede (se _baseline).
+                baseline_start, baseline_end, baseline_segments, baseline_pauses = _baseline(existing)
 
                 if can_resync_fully:
                     if (
@@ -485,32 +507,39 @@ def _import_activity(
                     # den nye linje kan uden problemer have samme starttidspunkt
                     # som den godkendte/deaktiverede aktivitet.
                     #
-                    # UNDTAGELSE – ufuldstændig genlæsning af allerede kendt data
-                    # (bekræftet 2026-09-18: Alexander B. Knudsen 11/9). scan_ddd_folder()
-                    # genparser ALLE .ddd-filer under max_age_days ved hver import, også
-                    # en ældre, delvis udlæsning fra midt i en vagt der senere er
-                    # genindlæst fuldt og godkendt/deaktiveret. Den gamle fil bliver
-                    # liggende i ddd_input/ og ligner ved hver eneste geninport en "kortere
-                    # vagt" i forhold til den allerede afgjorte – uden at tilføje NOGEN ny
-                    # information – hvilket spawner en frisk konkurrerende linje igen og
-                    # igen. Er den nye udlæsning markeret ufuldstændig, starter den samme
-                    # sted, slutter tidligere, og dens segmenter/pauser er et rent præfiks
-                    # af det allerede afgjorte, er der intet nyt at vise en bruger – spring
-                    # stille over.
-                    is_stale_partial_reread = (
-                        act.is_likely_incomplete
-                        and act.start_time == baseline_start
-                        and act.end_time <= baseline_end
-                        and baseline_segments[: len(new_segments)] == new_segments
-                        and all(p in baseline_pauses for p in new_pause_intervals)
-                    )
-                    if not is_stale_partial_reread and (
-                        act.start_time != baseline_start
-                        or act.end_time != baseline_end
-                        or new_segments != baseline_segments
-                        or new_pause_intervals != baseline_pauses
-                    ):
-                        needs_new_line = True
+                    # Opslaget ovenfor vælger kun ÉN kandidat, og flere afgjorte
+                    # linjer kan overlappe samme vagt ligeværdigt – typisk en
+                    # deaktiveret delvis udlæsning fra midt i vagten ved siden af
+                    # den godkendte, fulde vagt. Før der oprettes en ny linje,
+                    # tjekkes derfor ALLE overlappende afgjorte linjer: dækker
+                    # blot én af dem allerede udlæsningen, er der intet nyt
+                    # (bekræftet 2026-10-01: Alexander B. Knudsen 28/9 – opslaget
+                    # ramte den deaktiverede 05:43-05:45-linje, og en ny linje
+                    # identisk med den godkendte 05:43-13:40 blev oprettet).
+                    if not _settled_line_covers(existing, act, new_segments, new_pause_intervals):
+                        others = (
+                            db.query(Activity)
+                            .filter(
+                                Activity.employee_id == employee.id,
+                                Activity.source == ActivitySource.tachograph,
+                                Activity.status.in_([ActivityStatus.approved, ActivityStatus.deactivated]),
+                                Activity.id != existing.id,
+                                baseline_start_col < act.end_time,
+                                baseline_end_col > act.start_time,
+                            )
+                            .order_by(Activity.id)
+                            .all()
+                        )
+                        match = next(
+                            (o for o in others
+                             if _settled_line_covers(o, act, new_segments, new_pause_intervals)),
+                            None,
+                        )
+                        if match is None:
+                            needs_new_line = True
+                        elif new_vehicle_uses and new_vehicle_uses != match.vehicle_uses:
+                            match.vehicle_uses = new_vehicle_uses
+                            changed = True
 
                 if changed:
                     db.flush()  # gør ændringen synlig i denne transaktion; committes samlet til sidst

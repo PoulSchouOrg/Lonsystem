@@ -379,6 +379,41 @@ def test_stale_incomplete_reread_of_deactivated_activity_does_not_create_new_lin
     assert db.query(Activity).filter(Activity.employee_id == employee.id).count() == 1
 
 
+def test_reimport_matching_approved_line_skips_even_when_lookup_hits_deactivated_fragment(db, employee):
+    """
+    Reproducerer Alexander B. Knudsen 28/9-2026: en delvis udlæsning fra
+    midt i vagten (05:43-05:45) blev deaktiveret, og den fulde vagt
+    (05:43-13:40) blev godkendt som en separat linje. Begge overlapper
+    vagten ligeværdigt, og opslaget i _import_activity ramte den
+    deaktiverede stump (laveste id). En genimport af den uændrede, fulde
+    vagt må ikke oprette en ny linje identisk med den godkendte.
+    """
+    start = datetime(2026, 9, 28, 5, 43)
+    frag_end = datetime(2026, 9, 28, 5, 45)
+    end = datetime(2026, 9, 28, 13, 40)
+    segments = [
+        (start, datetime(2026, 9, 28, 5, 44), "rest"),
+        (datetime(2026, 9, 28, 5, 44), frag_end, "driving"),
+        (frag_end, end, "work"),
+    ]
+    pauses = [(start, datetime(2026, 9, 28, 5, 44))]
+
+    fragment = make_activity(db, employee, start=start, end=frag_end, status=ActivityStatus.deactivated)
+    fragment.segments = [[s.isoformat(), e.isoformat(), n] for s, e, n in segments[:2]]
+    fragment.pause_intervals = [[s.isoformat(), e.isoformat()] for s, e in pauses]
+
+    full = make_activity(db, employee, start=start, end=end, status=ActivityStatus.approved)
+    full.segments = [[s.isoformat(), e.isoformat(), n] for s, e, n in segments]
+    full.pause_intervals = [[s.isoformat(), e.isoformat()] for s, e in pauses]
+    db.commit()
+    assert fragment.id < full.id
+
+    result, _ = _import_activity(_parsed(start, end, segments=segments, pauses=pauses), db, employee)
+
+    assert result == "skipped_duplicate"
+    assert db.query(Activity).filter(Activity.employee_id == employee.id).count() == 2
+
+
 def test_legacy_corrected_segment_without_recorded_original_still_creates_one_more_line(db, employee):
     """
     Reproducerer Alexander B. Knudsen og Claus Ulrik Nicolaisen 9/9-2026: en
