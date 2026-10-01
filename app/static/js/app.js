@@ -1062,8 +1062,11 @@ function renderCellActivity(a, role = "full") {
   const incomplete = a.is_likely_incomplete
     ? `<span class="incomplete-mark" title="Filen ser ud til at være hentet midt i vagten (0 km registreret eller unormalt kort vagt, og dagen slutter ikke i hvil) – resten af dagen mangler formentlig. Hent en ny fil senere og importér igen.">✕</span>`
     : "";
-  const note = (a.comment && a.comment.trim())
-    ? `<span class="comment-note" title="Kommentar: ${h(a.comment)}"></span>`
+  // Split-delenes automatiske kommentar ("Split: første/anden del") tæller ikke som en kommentar
+  const commentText = (a.comment || "").trim();
+  const isSplitAutoComment = commentText === "Split: første del" || commentText === "Split: anden del";
+  const note = (commentText && !isSplitAutoComment)
+    ?`<span class="comment-note" title="Kommentar: ${h(a.comment)}"></span>`
     : "";
   if (a.activity_type !== "normal") {
     return `<div class="badge-group">
