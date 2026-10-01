@@ -529,16 +529,16 @@ _COUNT_BASED_RANGE_TYPES = {"overnatning", "dob_overnatning"}
 
 def _range_day_defaults(activity_type: str, d: date, employee: Employee) -> Optional[float]:
     """Timetal for én dag i en fraværsperiode, eller None hvis dagen skal
-    springes over (afspadsering uden skemalagte timer denne ugedag). Mirror af
-    confirmManualActivity()'s isRange-gren i app.js – hold de to i sync ved
-    ændringer af den ene."""
+    springes over (afspadsering/skole-kursus uden skemalagte timer denne ugedag).
+    Mirror af confirmManualActivity()'s isRange-gren i app.js – hold de to i
+    sync ved ændringer af den ene."""
     schedule = employee.work_schedule or {}
     week_key = "even" if is_even_week(d) else "odd"
     week = schedule.get(week_key) or []
     idx = d.weekday()
     scheduled = week[idx] if idx < len(week) else 0
 
-    if activity_type == "afspadsering":
+    if activity_type in ("afspadsering", "skole_kursus"):
         return scheduled if scheduled > 0 else None
     if activity_type == "feriefri":
         return 7.4

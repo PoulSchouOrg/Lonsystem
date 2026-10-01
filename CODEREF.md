@@ -308,7 +308,7 @@ ABSENCE_TYPES = new Set()  // populeres af loadAbsenceTypes() (linje 103)
 | `deleteManualPause(idx)` | 1864 | Fjerner pause ved index og re-renderer listen |
 
 **Dato-kun typer** (tidsfelter + sluttidsgruppe skjules): `ferie`, `sygdom`.  
-**Heldagsstandard, redigerbar**: `afspadsering` (enkeltdag; med 'Til dato' dato-kun). `#manual-start`s change-listener ignorerer ændringer i `.dt-time`, så defaults kun genanvendes ved datoskift – ellers blev en rettet starttid nulstillet til 06:00 (rettet 2026-09-30). Eksisterende afspadsering rettes via `edit-start`/`edit-end` → `saveActivityTimes()` (PATCH), ingen typespecifik logik.  
+**Heldagsstandard, redigerbar**: `afspadsering` og `skole_kursus` (enkeltdag: frie start-/sluttider; med 'Til dato' dato-kun med garanterede timer pr. hverdag, dage med 0 garanterede timer springes over – samme regel i `_range_day_defaults()`, ændret 2026-10-01). `#manual-start`s change-listener ignorerer ændringer i `.dt-time`, så defaults kun genanvendes ved datoskift – ellers blev en rettet starttid nulstillet til 06:00 (rettet 2026-09-30). Eksisterende afspadsering rettes via `edit-start`/`edit-end` → `saveActivityTimes()` (PATCH), ingen typespecifik logik.  
 **Normal tid**: slutdato synkroniseres automatisk med startdato ved datoændring (kan tilsidesættes).  
 **Pauser**: `let manualPauses = []` (modul-scope). Nulstilles ved åbning af modal. Medsendes som `pause_intervals` i POST. Fratrækkes i `_duration_minutes()` (backend) og lønberegning (via `_subtract_pauses()` i `overtime.py`).
 

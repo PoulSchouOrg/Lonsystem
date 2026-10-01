@@ -56,6 +56,13 @@ def test_range_day_defaults_afspadsering_skips_zero_scheduled_day():
     assert _range_day_defaults("afspadsering", date(2026, 1, 7), emp) is None  # onsdag = 0
 
 
+def test_range_day_defaults_skole_kursus_works_like_afspadsering():
+    from routers.activities import _range_day_defaults
+    emp = _emp({"even": [8, 8, 0, 8, 8, 0, 0], "odd": [8, 8, 0, 8, 8, 0, 0]})
+    assert _range_day_defaults("skole_kursus", date(2026, 1, 5), emp) == 8      # mandag = 8
+    assert _range_day_defaults("skole_kursus", date(2026, 1, 7), emp) is None   # onsdag = 0 → springes over
+
+
 def test_all_dates_includes_weekend():
     from routers.activities import _all_dates
     dates = _all_dates(date(2026, 1, 5), date(2026, 1, 11))  # man 5/1 - søn 11/1

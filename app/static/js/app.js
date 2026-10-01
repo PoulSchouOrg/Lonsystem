@@ -2246,8 +2246,9 @@ function updateManualTypeVisibility() {
   const type = document.getElementById("manual-type").value;
   const tilDatoVal = document.getElementById("manual-til-dato")?.value || "";
   const isFerie        = (type === "ferie" || type === "selvbetalt_fridag" || type === "loen_andet_sted_fra" || type === "eksport");
-  const isSygdom       = (type === "sygdom" || type === "barn_1sygedag" || type === "paragraf_56_syg" || type === "graviditetsbetinget_sygdom" || type === "skole_kursus");
-  const isAfspadsering = (type === "afspadsering");
+  const isSygdom       = (type === "sygdom" || type === "barn_1sygedag" || type === "paragraf_56_syg" || type === "graviditetsbetinget_sygdom");
+  // Kursus/Skole fungerer præcis som afspadsering (garanterede timer pr. dag i en periode, frie tider på én dag).
+  const isAfspadsering = (type === "afspadsering" || type === "skole_kursus");
   // Afspadsering er kun dato-kun/periode-visuelt når "Til dato" er udfyldt – enkelt dag beholder redigerbar start-/sluttid (delvis dag).
   const isAfspadseringPeriode = isAfspadsering && !!tilDatoVal;
   const isFeriefri     = (type === "feriefri");
@@ -2256,7 +2257,7 @@ function updateManualTypeVisibility() {
   const isCommentOnly  = (type === "__none__");
   const isDateOnly     = isFerie || isSygdom || isFeriefri || isBarsel || isOvernatning || isAfspadseringPeriode;
   const isAbsence      = ABSENCE_TYPES.has(type);
-  const isRangeType    = type === "ferie" || type === "selvbetalt_fridag" || type === "loen_andet_sted_fra" || type === "eksport" || isFeriefri || isBarsel || type === "sygdom" || type === "paragraf_56_syg" || type === "graviditetsbetinget_sygdom" || type === "skole_kursus" || isAfspadseringPeriode || isOvernatning;
+  const isRangeType    = type === "ferie" || type === "selvbetalt_fridag" || type === "loen_andet_sted_fra" || type === "eksport" || isFeriefri || isBarsel || type === "sygdom" || type === "paragraf_56_syg" || type === "graviditetsbetinget_sygdom" || isAfspadseringPeriode || isOvernatning;
   const tilDatoFieldVisible = isRangeType || isAfspadsering;
 
   // "Ingen (kun kommentar)" skal kun vise Medarbejder + Type + Vagtplan-kommentar –
@@ -2766,8 +2767,8 @@ async function openManualActivityModal(empId = null, dateIso = null, opts = {}) 
   document.getElementById("manual-employee").onchange = () => {
     const t = document.getElementById("manual-type").value;
     if (t === "ferie" || t === "selvbetalt_fridag" || t === "loen_andet_sted_fra" || t === "eksport") applyFerieDefaults();
-    if (t === "sygdom" || t === "barn_1sygedag" || t === "paragraf_56_syg" || t === "skole_kursus" || t === "barsel") applySygdomDefaults();
-    if (t === "afspadsering")                       applyAfspadseringDefaults();
+    if (t === "sygdom" || t === "barn_1sygedag" || t === "paragraf_56_syg" || t === "barsel") applySygdomDefaults();
+    if (t === "afspadsering" || t === "skole_kursus") applyAfspadseringDefaults();
     if (t === "feriefri")                           applyFeriefriDefaults();
     if (t === "barsel")                             applyBarselTerminsdatoDefault(true);
     document.getElementById("manual-reg").value = "";
@@ -2782,8 +2783,8 @@ async function openManualActivityModal(empId = null, dateIso = null, opts = {}) 
     if (e.target.classList.contains("dt-time")) return;
     const t = document.getElementById("manual-type").value;
     if (t === "ferie" || t === "selvbetalt_fridag" || t === "loen_andet_sted_fra" || t === "eksport") applyFerieDefaults();
-    if (t === "sygdom" || t === "barn_1sygedag" || t === "paragraf_56_syg" || t === "skole_kursus" || t === "barsel") applySygdomDefaults();
-    if (t === "afspadsering")                       applyAfspadseringDefaults();
+    if (t === "sygdom" || t === "barn_1sygedag" || t === "paragraf_56_syg" || t === "barsel") applySygdomDefaults();
+    if (t === "afspadsering" || t === "skole_kursus") applyAfspadseringDefaults();
     if (t === "feriefri")                           applyFeriefriDefaults();
     if (t === "normal") {
       const startDate = document.getElementById("manual-start")?.querySelector(".dt-date")?.value;
@@ -3092,7 +3093,7 @@ async function confirmManualActivity() {
     try {
       for (const iso of dates) {
         let hours = 7.4;
-        if (actType === "afspadsering") {
+        if (actType === "afspadsering" || actType === "skole_kursus") {
           const d = new Date(iso + "T12:00:00");
           const key = isoWeekNumber(d) % 2 === 0 ? "even" : "odd";
           const idx = (d.getDay() + 6) % 7;
