@@ -366,3 +366,42 @@ def test_build_activities_assigns_per_day_vehicle_registration():
     assert len(acts) == 2
     assert acts[0].vehicle_registration == "EB23579"
     assert acts[1].vehicle_registration == "CT15491"
+
+
+def test_parse_ddd_file_drops_daily_records_dated_after_download(tmp_path, monkeypatch):
+    """
+    Reproducerer Benny Hansen 28/9: en korrupt dags-post dateret 2034 i en
+    udlæsning fra 28/9-2026 kl. 08:18 UTC skubbede den reelle, delvise vagt
+    væk fra pladsen som sidste vagt i filen, så den ikke blev markeret
+    ufuldstændig. Poster dateret efter udlæsningsdatoen skal ignoreres.
+    """
+    import parsers.ddd_parser as p
+
+    day = datetime(2026, 9, 28)
+    bogus = datetime(2034, 6, 2)
+    records = [
+        (day, 0, _pack([(0, ACTIVITY_REST), (238, ACTIVITY_DRIVING), (480, ACTIVITY_WORK), (481, ACTIVITY_WORK)])),
+        (bogus, 50, _pack([(0, ACTIVITY_REST), (60, ACTIVITY_DRIVING), (600, ACTIVITY_REST)])),
+    ]
+    monkeypatch.setattr(p, "_extract_card_number", lambda d: "DK000000644960")
+    monkeypatch.setattr(p, "_extract_vehicle_usage_records", lambda d: [])
+    monkeypatch.setattr(p, "_extract_daily_odometer", lambda d: {})
+    monkeypatch.setattr(p, "_extract_vehicle_uses", lambda d: [])
+    monkeypatch.setattr(p, "_find_all_daily_records", lambda d, v=None: records)
+
+    f = tmp_path / "C_20260928_0818_Hansen_Benny_DK00000064496003.ddd"
+    f.write_bytes(b"\x00")
+    acts = p.parse_ddd_file(f)
+
+    assert [a.start_time.date() for a in acts] == [day.date()]
+    assert acts[0].is_likely_incomplete
+
+
+def test_download_date_falls_back_to_mtime_for_unknown_filename(tmp_path):
+    from parsers.ddd_parser import _download_date
+
+    f = tmp_path / "kort.ddd"
+    f.write_bytes(b"\x00")
+    ts = datetime(2026, 9, 28, 12, tzinfo=timezone.utc).timestamp()
+    os.utime(f, (ts, ts))
+    assert _download_date(f) == datetime(2026, 9, 28).date()

@@ -91,6 +91,16 @@ def parse_ddd_file(file_path: Path) -> list[ParsedActivity]:
     daily_odometer = _extract_daily_odometer(data)
     daily_records = _find_all_daily_records(data, vehicle_records)
 
+    # Dags-records dateret EFTER udlæsningen kan ikke være ægte – de er
+    # fejlfortolkede/korrupte poster (bekræftet 2026-10-02: Benny Hansen,
+    # en post dateret 2/6-2034 i en udlæsning fra 28/9-2026). Ud over at blive
+    # importeret som en meningsløs vagt, skubbede den udlæsningens reelle
+    # sidste vagt væk fra pladsen som "sidste vagt i filen", så den delvise
+    # vagt (05:58-10:01) ikke blev markeret ufuldstændig – og hver genimport
+    # oprettede derfor en ny dublet-linje for dagen.
+    read_date = _download_date(file_path)
+    daily_records = [r for r in daily_records if r[0].date() <= read_date]
+
     if not daily_records:
         return []
 
@@ -98,6 +108,22 @@ def parse_ddd_file(file_path: Path) -> list[ParsedActivity]:
         card_number, vehicle_records, daily_odometer, daily_records, str(file_path),
         vehicle_uses=_extract_vehicle_uses(data),
     )
+
+
+_DOWNLOAD_NAME_RE = re.compile(r"^C_(\d{8})_(\d{4})_")
+
+
+def _download_date(file_path: Path):
+    """UTC-datoen kortet blev udlæst, fra filnavnet (C_ÅÅÅÅMMDD_TTMM_...).
+    Følger filnavnet ikke mønstret, bruges filens ændringstidspunkt – det kan
+    aldrig ligge før udlæsningen, så det er en sikker øvre grænse."""
+    m = _DOWNLOAD_NAME_RE.match(file_path.name)
+    if m:
+        try:
+            return datetime.strptime(m.group(1), "%Y%m%d").date()
+        except ValueError:
+            pass
+    return datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc).date()
 
 
 DEFAULT_MAX_FILE_AGE_DAYS = 7
