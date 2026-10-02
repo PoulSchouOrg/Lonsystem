@@ -618,3 +618,23 @@ class EmployeeSpringerFlag(Base):
     __table_args__ = (
         Index("uq_employee_springer_flags_emp_period", "employee_id", "pay_period_id", unique=True),
     )
+
+
+class EmployeePayrollReadyFlag(Base):
+    """'Klar til løn'-flueben pr. medarbejder pr. lønperiode (aktivitetsoversigten).
+    Bruges kun til filteret 'Klar til løn' – påvirker ikke lønberegningen."""
+    __tablename__ = "employee_payroll_ready_flags"
+
+    id = Column(Integer, primary_key=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    pay_period_id = Column(Integer, ForeignKey("pay_periods.id"), nullable=False, index=True)
+    enabled = Column(Boolean, default=False, nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    updated_by = Column(String, nullable=True)
+
+    employee = relationship("Employee")
+    pay_period = relationship("PayPeriod")
+
+    __table_args__ = (
+        Index("uq_employee_payroll_ready_flags_emp_period", "employee_id", "pay_period_id", unique=True),
+    )

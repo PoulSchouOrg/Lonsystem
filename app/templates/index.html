@@ -160,6 +160,11 @@
         <select id="filter-dispatcher-group" style="width:180px">
           <option value="">Alle afdelinger</option>
         </select>
+        <select id="filter-payroll-ready" style="width:190px" title="Filtrér på klar til løn">
+          <option value="">Klar til løn: Alle</option>
+          <option value="ready">Klar til løn</option>
+          <option value="not_ready">Ikke klar til løn</option>
+        </select>
         <div class="spacer"></div>
         <button id="btn-auto-approve" class="btn btn-secondary" onclick="bulkAutoApprove()" title="Auto-godkend alle egnede ventende aktiviteter i denne periode">Autogodkend aktiviteter</button>
         <button class="btn btn-primary" data-perm-require="edit_activities" onclick="openManualActivityModal()">+ Tilføj aktivitet</button>

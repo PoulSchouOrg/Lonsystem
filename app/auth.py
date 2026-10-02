@@ -27,6 +27,7 @@ ALL_PERMISSIONS = {
     "manage_auto_approval": "Slå auto-godkendelse til/fra",
     "view_calendar":       "Se aktivitetskalender",
     "toggle_springer":     "Sæt springertillæg",
+    "toggle_payroll_ready": "Sæt klar til løn",
     "vagtplan_view":       "Se vagtplan",
     "vagtplan_edit_own":   "Redigér egen linje i vagtplan",
     "vagtplan_edit_all":   "Redigér alle linjer i vagtplan",

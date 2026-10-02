@@ -66,6 +66,7 @@ const PERMISSION_LABELS = {
   view_calendar:       "Se aktivitetskalender",
   manage_employee_supplements: "Administrér medarbejdertillæg",
   toggle_springer:     "Sæt springertillæg",
+  toggle_payroll_ready: "Sæt klar til løn",
   vagtplan_view:       "Se vagtplan",
   vagtplan_edit_own:   "Redigér egen linje i vagtplan",
   vagtplan_edit_all:   "Redigér alle linjer i vagtplan",
@@ -102,6 +103,7 @@ const PERMISSION_DESCRIPTIONS = {
   manage_auto_approval: "Kan slå den globale auto-godkendelse til/fra i Stamdata. Styrer kun DDD-import og bulk-knappen \"Autogodkend aktiviteter\" (baseret på medarbejderens historiske mønster) – påvirker ikke manuel oprettelse.",
   view_calendar:       "Kan se aktivitetsoversigten/-kalenderen.",
   toggle_springer:     "Kan sætte/fjerne springertillæg-markering på en medarbejders linje.",
+  toggle_payroll_ready: "Kan sætte/fjerne \"Klar til løn\"-markering på en medarbejders linje i aktivitetsoversigten (bruges kun til filteret).",
   vagtplan_view:       "Kan se vagtplanen.",
   vagtplan_edit_own:   "Kan redigere egen linje i vagtplanen.",
   vagtplan_edit_all:   "Kan redigere alle medarbejderes linjer i vagtplanen.",
@@ -889,6 +891,7 @@ async function loadActivities() {
       GET(`/api/activities?period_start=${state.currentPeriodStart}`).then(a => { state.activities = a; }),
       loadHolidaysForPeriod(p.start_date, p.end_date),
       GET(`/api/activities/springer-flags?pay_period_id=${p.id}`).then(r => { state.springerFlags = r; }),
+      GET(`/api/activities/payroll-ready-flags?pay_period_id=${p.id}`).then(r => { state.payrollReadyFlags = r; }),
     ]);
     renderActivitiesTable();
   } catch (e) { toast(e.message, "error"); }
@@ -904,6 +907,7 @@ function renderActivitiesTable() {
   const statusFilter = document.getElementById("filter-status")?.value || "all";
   const empFilter = document.getElementById("filter-employee")?.value || "";
   const groupFilter = document.getElementById("filter-dispatcher-group")?.value || "";
+  const readyFilter = document.getElementById("filter-payroll-ready")?.value || "";
 
   const activities = state.activities.filter(a => {
     // Splittede aktiviteter er erstattet af deres to dele – vis kun delene
@@ -992,6 +996,10 @@ function renderActivitiesTable() {
   let emps = state.employees.filter(e => e.active && _empHasVisibleGroup(e));
   if (groupFilter) emps = emps.filter(e => _empInGroup(e, groupFilter));
   if (empFilter) emps = emps.filter(e => e.id === parseInt(empFilter));
+  if (readyFilter) {
+    const wantReady = readyFilter === "ready";
+    emps = emps.filter(e => (state.payrollReadyFlags?.[e.id] === true) === wantReady);
+  }
   emps.sort((x, y) => x.name.localeCompare(y.name, "da"));
 
   const body = document.getElementById("grid-body");
@@ -1003,17 +1011,24 @@ function renderActivitiesTable() {
   }
 
   const canToggleSpringer = state.currentUser?.permissions?.includes("toggle_springer");
+  const canToggleReady = state.currentUser?.permissions?.includes("toggle_payroll_ready");
   const periodLocked = p.status === "closed";
 
   for (const emp of emps) {
     const tr = document.createElement("tr");
     const springerChecked = state.springerFlags?.[emp.id] === true;
     const springerDisabledAttr = (!canToggleSpringer || periodLocked) ? "disabled" : "";
+    const readyChecked = state.payrollReadyFlags?.[emp.id] === true;
+    const readyDisabledAttr = (!canToggleReady || periodLocked) ? "disabled" : "";
     let cells = `<td class="emp-cell${empCellHighlight(emp)}" title="${h(emp.name)} (lønnr. ${h(emp.employee_number)})">
       ${h(emp.name)}
       <label class="springer-flag-label">
         <input type="checkbox" class="springer-flag-checkbox" data-emp-id="${emp.id}"
           ${springerChecked ? "checked" : ""} ${springerDisabledAttr}> Springertillæg
+      </label>
+      <label class="springer-flag-label">
+        <input type="checkbox" class="payroll-ready-checkbox" data-emp-id="${emp.id}"
+          ${readyChecked ? "checked" : ""} ${readyDisabledAttr}> Klar til løn
       </label>
     </td>`;
     for (const d of days) {
@@ -1061,6 +1076,29 @@ function renderActivitiesTable() {
         // ikke overskriver brugerens seneste ændring med den forældede værdi fra
         // sidste periode-indlæsning.
         state.springerFlags = { ...(state.springerFlags || {}), [parseInt(el.dataset.empId)]: checked };
+      } catch (err) {
+        el.checked = !checked;
+        toast(err.message, "error");
+      }
+    });
+    el.addEventListener("click", e => e.stopPropagation());
+  });
+
+  // "Klar til løn"-flueben (påvirker kun filteret filter-payroll-ready)
+  body.querySelectorAll(".payroll-ready-checkbox").forEach(el => {
+    el.addEventListener("change", async e => {
+      e.stopPropagation();
+      const checked = el.checked;
+      try {
+        await POST("/api/activities/payroll-ready-flag", {
+          employee_id: parseInt(el.dataset.empId),
+          pay_period_id: p.id,
+          enabled: checked,
+        });
+        // Samme cache-opdatering som for springertillæg (se ovenfor).
+        state.payrollReadyFlags = { ...(state.payrollReadyFlags || {}), [parseInt(el.dataset.empId)]: checked };
+        // Er filteret "Klar til løn"/"Ikke klar til løn" aktivt, skal linjen straks forsvinde.
+        if (readyFilter) renderActivitiesTable();
       } catch (err) {
         el.checked = !checked;
         toast(err.message, "error");
@@ -6885,6 +6923,7 @@ async function init() {
   document.getElementById("filter-status").addEventListener("change", () => { updateStatChipActive(); renderActivitiesTable(); });
   document.getElementById("filter-employee").addEventListener("change", renderActivitiesTable);
   document.getElementById("filter-dispatcher-group").addEventListener("change", () => { fillEmployeeFilter(); renderActivitiesTable(); });
+  document.getElementById("filter-payroll-ready").addEventListener("change", renderActivitiesTable);
   document.getElementById("settlement-filter-dispatcher-group")?.addEventListener("change", settlementDispatcherGroupFilterChanged);
   document.getElementById("settlement-filter-employee")?.addEventListener("change", loadPayrollSettlement);
   document.getElementById("stat-pending") ?.addEventListener("click", () => toggleStatFilter("pending"));

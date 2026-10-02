@@ -15,7 +15,7 @@ from calculators.baseline_updater import update_baseline_from_activity, is_auto_
 from calculators.dagsplan_helpers import effective_vehicle_for_employee
 from calculators.pay_period import get_or_create_period_for_date, is_even_week
 from calculators.vehicle_uses import clipped_vehicle_uses, has_multiple_vehicles
-from database.models import Activity, ActivitySource, ActivityStatus, AppUser, Employee, EmployeeSpringerFlag, PayPeriod, PayPeriodStatus, Vehicle
+from database.models import Activity, ActivitySource, ActivityStatus, AppUser, Employee, EmployeePayrollReadyFlag, EmployeeSpringerFlag, PayPeriod, PayPeriodStatus, Vehicle
 from database.schemas import (
     AbsenceGroupDatesUpdate,
     AbsenceGroupUpdateResponse,
@@ -32,11 +32,18 @@ from database.session import get_db
 router = APIRouter(prefix="/api/activities", tags=["activities"])
 
 _toggle_springer_access = require_permission("toggle_springer")
+_toggle_payroll_ready_access = require_permission("toggle_payroll_ready")
 # Aktiviteter vises i Aktivitetsoversigten (view_calendar) og i Vagtplanen (vagtplan_view).
 _view_activities_access = require_any_permission("view_calendar", "vagtplan_view")
 
 
 class SpringerFlagUpdate(BaseModel):
+    employee_id: int
+    pay_period_id: int
+    enabled: bool
+
+
+class PayrollReadyFlagUpdate(BaseModel):
     employee_id: int
     pay_period_id: int
     enabled: bool
@@ -495,6 +502,46 @@ def set_springer_flag(body: SpringerFlagUpdate,
         db.add(row)
     db.commit()
     log_action(db, current_user, "springer_flag_set", "employee_springer_flag", body.employee_id,
+               f"periode {body.pay_period_id}: {'sat' if body.enabled else 'fjernet'}")
+    db.commit()
+    return {"employee_id": body.employee_id, "pay_period_id": body.pay_period_id, "enabled": body.enabled}
+
+
+@router.get("/payroll-ready-flags")
+def get_payroll_ready_flags(pay_period_id: int,
+                             current_user: AppUser = Depends(_view_activities_access),
+                             db: Session = Depends(get_db)):
+    rows = db.query(EmployeePayrollReadyFlag).filter(
+        EmployeePayrollReadyFlag.pay_period_id == pay_period_id,
+        EmployeePayrollReadyFlag.enabled == True,
+    ).all()
+    return {r.employee_id: True for r in rows}
+
+
+@router.post("/payroll-ready-flag")
+def set_payroll_ready_flag(body: PayrollReadyFlagUpdate,
+                            current_user: AppUser = Depends(_toggle_payroll_ready_access),
+                            db: Session = Depends(get_db)):
+    period = db.query(PayPeriod).filter(PayPeriod.id == body.pay_period_id).first()
+    if not period:
+        raise HTTPException(404, "Lønperiode ikke fundet")
+    if period.status == PayPeriodStatus.closed:
+        raise HTTPException(400, "Lønperioden er låst – kan ikke ændres")
+    row = db.query(EmployeePayrollReadyFlag).filter(
+        EmployeePayrollReadyFlag.employee_id == body.employee_id,
+        EmployeePayrollReadyFlag.pay_period_id == body.pay_period_id,
+    ).first()
+    if row:
+        row.enabled = body.enabled
+        row.updated_by = current_user.initials
+    else:
+        row = EmployeePayrollReadyFlag(
+            employee_id=body.employee_id, pay_period_id=body.pay_period_id,
+            enabled=body.enabled, updated_by=current_user.initials,
+        )
+        db.add(row)
+    db.commit()
+    log_action(db, current_user, "payroll_ready_flag_set", "employee_payroll_ready_flag", body.employee_id,
                f"periode {body.pay_period_id}: {'sat' if body.enabled else 'fjernet'}")
     db.commit()
     return {"employee_id": body.employee_id, "pay_period_id": body.pay_period_id, "enabled": body.enabled}

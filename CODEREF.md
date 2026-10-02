@@ -393,6 +393,7 @@ statusLabel(s)       // "Afventer"/"Godkendt"/"Deaktiveret"
 | filter-status | Statusfilter i toolbar |
 | filter-employee | Medarbejderfilter |
 | filter-dispatcher-group | Afdelingsfilter |
+| filter-payroll-ready | "Klar til løn"-filter (Klar til løn: Alle / Klar til løn / Ikke klar til løn) |
 | period-label | Viser perioden |
 | grid-head / grid-body | Aktivitetstabel |
 
@@ -597,6 +598,18 @@ Ny løntypekode `SPRINGERTILLAEG` (kr/time-sats fra `MasterSupplementRate`, labe
 
 **Klient-cache-faldgrube i aktivitetsoversigten (rettet 2026-09-22):** checkbox-listeneren for fluebenet skal opdatere `state.springerFlags` lokalt efter et vellykket POST — ellers overskriver en efterfølgende `renderActivitiesTable()`-gentegning (fx via `refreshActivities()` efter oprettelse af en aktivitet) fluebenet med den forældede værdi fra sidste periode-indlæsning.
 
+
+---
+
+## Klar til løn-flueben (2026-10-02, activities.py + app.js)
+
+Andet flueben under navnet i aktivitetsoversigten ("Klar til løn"), samme mønster som Springertillæg, men UDEN nogen effekt på lønberegning/CSV/PDF – bruges KUN af toolbar-filteret `filter-payroll-ready` (`""` = Alle, `ready`, `not_ready`), der filtrerer medarbejderrækkerne i `renderActivitiesTable()`. Er filteret aktivt, gentegnes tabellen straks efter et skift, så linjen forsvinder.
+
+**Datamodel:** tabel `employee_payroll_ready_flags` (model `EmployeePayrollReadyFlag`, unikt `(employee_id, pay_period_id)`) – pr. lønperiode, ingen række = ikke klar.
+
+**Endpoints:** `GET /api/activities/payroll-ready-flags?pay_period_id=` (`view_calendar|vagtplan_view`), `POST /api/activities/payroll-ready-flag` (kræver `toggle_payroll_ready`, 400 i låst periode, audit `payroll_ready_flag_set`).
+
+**Permission `toggle_payroll_ready`** ("Sæt klar til løn"): kun admin (systemrolle) – ingen `_ensure_*`, øvrige roller tildeles via rolle-editoren. Uden rettighed/i låst periode vises fluebenet disabled. Tests: `tests/test_payroll_ready_flag.py`.
 ---
 
 ## Aftale som Stamdata-tabel (2026-08-24, models.py + stamdata.py + employees.py + overtime.py + payroll_router.py)
