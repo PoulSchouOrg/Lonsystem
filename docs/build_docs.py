@@ -331,11 +331,11 @@ def build_teknisk():
         ["Felt", "Type", "Beskrivelse"],
         [
             ["employee_number",       "String (unik)",   "Lønnummer – primær identifikator i lønsystemet"],
-            ["tachograph_card_number","String (unik)",   "EU-førerkortnummer – bruges til at matche .ddd-filer"],
+            ["tachograph_card_number","String (unik)",   "EU-førerkortnummer – bruges til at matche .ddd-filer. Påkrævet for chauffører (alle aftaletyper undtagen funktionær) siden 2026-10-01"],
             ["first_name / last_name","String",          "Navn"],
             ["address / postal_code", "String (opt.)",   "Adresse"],
-            ["email / phone / mobile","String (opt.)",   "Kontaktoplysninger"],
-            ["initials",              "String(10) (opt.)","Initialer – matches mod brugerens initialer for 'Redigér egen linje i vagtplan'"],
+            ["email / phone / mobile","String (opt.)",   "Kontaktoplysninger. email er påkrævet ved gem siden 2026-10-01 og vises som 'Email (Poulschou)' for funktionærer og 'Email (Privat)' for chauffører – samme DB-felt"],
+            ["initials",              "String(10) (opt.)","Initialer – matches mod brugerens initialer for 'Redigér egen linje i vagtplan'. Påkrævet for funktionærer (2026-10-01)"],
             ["agreement_kind",        "String",          "Nøgle fra master_agreement_kinds.key (se afsnit 2.5) – ikke længere en fast enum-kolonne. Systemnøglerne hourly_fixed/hourly_flexible styrer stadig overtidsberegningen (se afsnit 5.5); nye, brugeroprettede nøgler springes automatisk over i den"],
             ["agreement_type",        "String",          "Overenskomsttype fra Excel-filen – bestemmer timesats"],
             ["fuldloennet",           "Boolean",         "Fuldlønnet status"],
@@ -353,6 +353,12 @@ def build_teknisk():
             ["paragraf_56 / paragraf_56_start_date / paragraf_56_end_date", "Boolean / Date (opt.) / Date (opt.)", "§56-aftale (se afsnit 6.5) – begge datoer er påkrævede når paragraf_56=true, nulstilles til NULL server-side når feltet slås fra"],
             ["cvr_number",             "String(20) (opt.)", "Tilknyttet CVR-nummer – None betyder 'brug standard-CVR'. Se afsnit 6.6"],
             ["terminsdato",            "Date (opt.)",     "Seneste terminsdato angivet ved oprettelse af en barsel-aktivitet – gemmes for genbrug. Se afsnit 8.7"],
+            ["position_id",            "Integer FK (opt.)", "Stilling (2026-10-01) – FK til master_positions. Påkrævet ved gem for alle typer, nullable i DB (eksisterende medarbejdere har den tom). Se afsnit 6.7"],
+            ["seniority_date",         "Date (opt.)",     "Anciennitetsdato (2026-10-01) – bruges KUN til jubilæumsadvarslen. Påvirker ikke 9-måneders-varslet, 'mdr. anciennitet' eller satser, som fortsat regner fra hire_date"],
+            ["cpr_number",             "String(11) (opt.)", "CPR-nummer 'ddmmåå-xxxx' (2026-10-01). Valideres som dato (ingen modulus-11, intet unikhedstjek). Maskeres server-side til 'ddmmåå-****' uden rettigheden view_cpr. Se afsnit 6.7"],
+            ["elev / elev_start_date / elev_end_date", "Boolean / Date (opt.) / Date (opt.)", "Elev (2026-10-01, kun chauffører). Begge datoer påkrævede når elev=true, slut ≥ start. Ingen lønmæssig effekt – kun advarsel, filter og farvemarkering"],
+            ["personaleforening",      "Boolean",         "Medlem af Personaleforening (2026-10-01). Default True for nye medarbejdere; eksisterende fik 0 ved migreringen"],
+            ["natarbejde_tillaeg",     "Boolean, default false", "Natarbejdetillæg (2026-10-01, kun chauffører). Ingen beregningseffekt – kun filter og tabel"],
             ["created_at / updated_at", "DateTime",       "Tidsstempler"],
         ]
     )
@@ -429,7 +435,7 @@ def build_teknisk():
 
     heading(doc, "Stamdata – masterdatatabeller", 2, "2.5")
     body(doc, (
-        "Syv tabeller holder systemets masterdata. De fleste seedes automatisk fra Excel-filerne "
+        "Otte tabeller holder systemets masterdata. De fleste seedes automatisk fra Excel-filerne "
         "ved første opstart (Excel-filerne bruges herefter kun som fallback hvis en tabel er tom); "
         "master_agreement_kinds seedes i stedet fra to faste, hardkodede systemrækker (se nedenfor). "
         "Alle tabeller redigeres derefter via Stamdata-modulet i systemets brugerflade."
@@ -444,6 +450,7 @@ def build_teknisk():
             ["master_pay_types",        "Løntypekoder til Danløn CSV",     "code_key (unik), label, danloen_code, include_in_csv, csv_quantity_type, csv_rate_source, csv_include_rate, csv_include_total, is_user_created, sort_order"],
             ["master_cvr_numbers",      "CVR-numre (afsnit 6.6)",          "cvr_number (unik), company_name, is_default"],
             ["master_absence_types",    "Fraværstyper der vises i UI",     "label, normalized_key (unik), is_active, is_user_created, sort_order"],
+            ["master_positions",        "Stillinger til medarbejderens Stilling-felt (2026-10-01, afsnit 6.7)", "name (unik). Seedes ikke – oprettes i Stamdata → Stillinger"],
         ]
     )
     body(doc, (
@@ -668,6 +675,15 @@ def build_teknisk():
         "ene, den anden deaktiveret), matcher genimport nu den linje hvis ORIGINALE tider passer "
         "til den nye udlæsning, frem for den manuelt udvidede linje. Tidligere opstod der en ny "
         "dublet-linje ved hver import (bekræftet for Mathias Hardon 24/9 og 25/9-2026).",
+        "TEKNISK NOTE"
+    )
+    note_box(doc,
+        "Rettet 2026-10-01: Rammer opslaget i _import_activity() en godkendt/deaktiveret linje der "
+        "afviger fra udlæsningen, tjekkes nu ALLE øvrige overlappende afgjorte linjer via "
+        "_settled_line_covers() (identisk med linjens baseline, eller en forældet ufuldstændig "
+        "genlæsning) før der oprettes en ny afventende linje. Tidligere ramte opslaget fx en "
+        "deaktiveret delvis udlæsning (laveste id) ved siden af den godkendte fulde vagt, og hver "
+        "genimport skabte en ny dublet (bekræftet for Alexander B. Knudsen 28/9-2026).",
         "TEKNISK NOTE"
     )
 
@@ -943,7 +959,7 @@ def build_teknisk():
     heading(doc, "Stamdata-modulet i brugerfladen", 2, "6.2")
     body(doc, (
         "Stamdata-menupunktet (⚙️ Stamdata) i venstre menu giver administratorer adgang til "
-        "ti faner med CRUD-funktionalitet for alle masterdatatabeller:"
+        "elleve faner med CRUD-funktionalitet for alle masterdatatabeller:"
     ))
     header_table(doc,
         ["Fane", "Indhold", "CRUD-muligheder"],
@@ -954,7 +970,8 @@ def build_teknisk():
             ["Løntypekoder",      "master_pay_types",       "Opret nye, rediger type/kode/CSV-flag/antal-type/sats-kilde/inkl. sats/inkl. total, slet alle – INGEN 'i brug'-spærre ved sletning, heller ikke for systemsatser (kode 1/normal tid m.fl.)"],
             ["Fraværstyper",      "master_absence_types",   "Opret nye, aktiver/deaktiver, slet alle"],
             ["CVR nummer",        "master_cvr_numbers",     "Opret, rediger, sæt standard, slet"],
-            ["Helligdage",        "holidays",               "Auto-generer for år, opret manuelt, slet. Kræver 'manage_holidays'-rettighed."],
+            ["Stillinger",        "master_positions",       "Opret, omdøb, slet (2026-10-01). Navne er unikke uden hensyn til store/små bogstaver og vises alfabetisk. Sletning afvises, hvis stillingen bruges af en medarbejder (fejlbeskeden viser antallet). Ændringer audit-logges"],
+            ["Helligdage",        "holidays",              "Auto-generer for år, opret manuelt, slet. Kræver 'manage_holidays'-rettighed."],
             ["Disponentgrupper",  "dispatcher_groups",      "Opret, omdøb/rediger beskrivelse, slet (fjerner automatisk tilknytning hos medlemmer)"],
             ["Aftale",            "master_agreement_kinds", "Opret nye, rediger label/aktiv/kræver overenskomsttype. De to systemtyper (hourly_fixed/hourly_flexible) kan ikke slettes; nye typer kan slettes hvis ingen medarbejder bruger dem."],
             ["Auto-godkendelse",  "(indstilling, ingen egen tabel)", "Slå den statistiske baseline-auto-godkendelse til/fra globalt (GET/POST /api/auto-approval/settings). Kræver desuden 'manage_auto_approval'-rettigheden ud over 'stamdata'."],
@@ -1130,6 +1147,53 @@ def build_teknisk():
         "Med kun ét CVR-nummer i Stamdata skjules CVR-dropdownet i medarbejder-modalen helt "
         "(frontend: _loadEmpCvrDropdown() viser kun feltet hvis der er ≥2 rækker) – enkeltselskaber "
         "ser derfor intet CVR-valg og alle medarbejdere bruger implicit standard-CVR'et.",
+        "TEKNISK NOTE"
+    )
+
+    heading(doc, "Medarbejderregister: felter, CPR og mærkedage", 2, "6.7")
+    body(doc, (
+        "Udvidet 2026-10-01 (spec: docs/superpowers/specs/2026-10-01-medarbejderregister.md). "
+        "'Funktionær' betyder agreement_kind == 'funktionaer'; 'chauffør' er alle andre aftaletyper. "
+        "Rene regler uden database ligger i utils/employee_rules.py; endepunkter i routers/employees.py "
+        "og routers/stamdata.py."
+    ))
+    header_table(doc,
+        ["Emne", "Implementering"],
+        [
+            ["Påkrævede felter", "_validate_employee_fields(): Stilling og Email for alle; Initialer for funktionærer; Førerkortnummer for chauffører; Elev start/slut (slut ≥ start) når elev=true for chauffører. Ved PATCH kontrolleres kun felter der sendes med, så eksisterende medarbejdere først skal udfylde dem, næste gang hele formularen gemmes. Skjulte felter er aldrig påkrævede. Håndhæves også i confirmEmployee() (app.js)"],
+            ["Skjulte felter", "Felter med klassen emp-driver-only (Førerkort, Elev, Natarbejdetillæg, Afløser, Fast bil, Særaftale) skjules for funktionærer, men værdien bevares i DB. Gemmes en funktionær med Afløser/Fast bil/Særaftale stadig afkrydset, viser modal-emp-hidden-flags et Behold/Fjern-valg pr. flag (_showEmpHiddenFlags() → confirmEmpHiddenFlags()). Fjern på Fast bil nulstiller også bilen"],
+            ["Lønnummer-generator", "GET /api/employees/next-employee-number → {suggestion}: højeste numeriske lønnummer ≥ 34000 + 1 (aktive og inaktive, huller udfyldes ikke, ikke-numeriske ignoreres; 34000 hvis intet). Udfyldes i opret-modalen og kan overskrives"],
+            ["Live dublettjek", "GET /api/employees/check-number?number=…&exclude_id=… → {taken, employee_name}, kaldt fra checkEmployeeNumber() ved blur. update_employee afviser desuden et lønnummer der allerede findes (400)"],
+            ["CPR", "validate_cpr(): format ddmmåå-xxxx og gyldig dato; århundrede fra 7. ciffer efter den officielle regel (_century()). Uden view_cpr maskeres de sidste 4 cifre server-side (_apply_cpr_mask() → mask_cpr()), så de aldrig sendes til browseren. En maskeret værdi i PATCH (is_masked_cpr) betyder 'uændret'. Uden view_employees/manage_employees fjernes CPR helt (_PRIVATE_EMPLOYEE_FIELDS). CPR er aldrig med i tabel eller eksport"],
+            ["Stillinger", "master_positions. GET /api/employees/positions (alle med adgang til medarbejderlisten – til dropdown og filter). GET/POST/PATCH/DELETE /api/stamdata/positions kræver 'stamdata'"],
+            ["Excel-eksport", "POST /api/employees/export-xlsx (body: employee_ids i klientens rækkefølge, dvs. efter filtre, søgning og sortering). Kræver employee_export. openpyxl, kolonner som tabellen men Elev delt i Elev/Elev start/Elev slut. Filnavn Medarbejderregister_ÅÅÅÅ-MM-DD.xlsx. Logges som 'employee_export'"],
+            ["Tabelvisning", "renderEmployeeList() med _EMP_TABLE_COLUMNS; valget gemmes i localStorage 'employeeViewMode'. Knappen kræver employee_table_view. Klik på kolonneoverskrift sorterer (sortEmployeeTable())"],
+            ["Søgning og filtre", "_filteredEmployees(): navn, lønnummer, telefon og mobil (_normalizePhone() fjerner mellemrum og +45/0045). Filtre: Stilling (inkl. 'Ingen stilling'), Personaleforening, Natarbejdetillæg, Elev – gælder både liste, tabel og eksport"],
+            ["Elev-farve", "Elever (isElev(): elev=true og ikke funktionær) markeres gult: celle #fff3b8 (klassen elev-highlight i Vagtplan og Aktivitetskalender, elev-row i tabellen) og avatar #e0a800. Elev-farven vinder over afløser-farven"],
+        ]
+    )
+    body(doc, (
+        "Mærkedagsadvarsler: GET /api/employees/milestone-alerts returnerer jubilæum (25/40/50 år fra "
+        "seniority_date, ellers hire_date), elev slutter (elev_end_date) og rund fødselsdag (10, 20, "
+        "30 … år, fødselsdato fra det fulde CPR – virker derfor også for brugere uden view_cpr). Kun "
+        "aktive medarbejdere. Vinduet er fra og med samme dato måneden før til og med selve dagen "
+        "(in_alert_window()); er dagen passeret, vises intet. Hver type kræver sin egen rettighed "
+        "(jubilee_alert, elev_alert, birthday_alert)."
+    ))
+    body(doc, (
+        "Afvisning ('OK' eller 'Luk' – begge kalder dismissMilestoneAlert(); × lukker kun) sker via POST /api/employees/{id}/dismiss-milestone-alert og gemmes pr. bruger "
+        "i den eksisterende tabel Paragraf56AlertDismissal med alert_type = begivenheden, fx "
+        "'birthday_40', 'jubilee_25' eller 'elev_ÅÅÅÅ-MM-DD'. Næste runde fødselsdag/jubilæum giver "
+        "derfor en ny advarsel, og elev-advarslen kommer igen, hvis slutdatoen ændres. Når §56-slutdatoen "
+        "ændres, slettes nu kun afvisninger af typen 'upcoming'/'expired' – mærkedagsafvisninger "
+        "bevares."
+    ))
+    note_box(doc,
+        "De seks nye rettigheder (view_cpr, jubilee_alert, elev_alert, birthday_alert, "
+        "employee_table_view, employee_export) er tilføjet ALL_PERMISSIONS i auth.py og tildeles "
+        "ingen roller automatisk – kun Administrator har dem fra start (implicit alle rettigheder). "
+        "Migreringen i _migrate() tilføjer de nye employees-kolonner med ALTER TABLE; "
+        "personaleforening får bevidst 0 for eksisterende medarbejdere.",
         "TEKNISK NOTE"
     )
 
@@ -1599,7 +1663,7 @@ def build_teknisk():
     for step in [
         "Kun hverdage (mandag–fredag) indgår i beregningen af det nye datointerval for de fleste typer – UNDTAGEN overnatning/dob_overnatning (_COUNT_BASED_RANGE_TYPES), hvor _all_dates() bruges i stedet, så weekend/helligdage tælles med (afsnit 7.8).",
         "Dage der FJERNES fra perioden: afvises alt-eller-intet hvis nogen af dem hører til en lukket lønperiode, eller er splittet – ellers SLETTES de tilhørende aktiviteter permanent (db.delete()), ikke deaktiveres.",
-        "Dage der TILFØJES: for almindelige fraværstyper oprettes en ny aktivitet med standardtimer fra _range_day_defaults(): medarbejderens skemalagte timer (lige/ulige uge), eller 7,4 t hvis de er 0. Feriefri får altid 7,4 t. Kun for AFSPADSERING springes en dag med 0 skemalagte timer over (rapporteres i svarets skipped-liste). For overnatning/dob_overnatning oprettes i stedet en midnatsstemplet nul-varighed-aktivitet pr. dag, som ved almindelig oprettelse – ingen skematime-beregning, ingen skip-mulighed.",
+        "Dage der TILFØJES: for almindelige fraværstyper oprettes en ny aktivitet med standardtimer fra _range_day_defaults(): medarbejderens skemalagte timer (lige/ulige uge), eller 7,4 t hvis de er 0. Feriefri får altid 7,4 t. Kun for AFSPADSERING og SKOLE_KURSUS (sidstnævnte siden 2026-10-01) springes en dag med 0 skemalagte timer over (rapporteres i svarets skipped-liste). For overnatning/dob_overnatning oprettes i stedet en midnatsstemplet nul-varighed-aktivitet pr. dag, som ved almindelig oprettelse – ingen skematime-beregning, ingen skip-mulighed.",
         "Backend udfører INGEN konflikttjek mod eksisterende kørsel ('normal tid') på de tilføjede dage for de fleste typer – det tjek er kun implementeret i frontend (se Brugervejledningen, afsnit 6.4). For overnatning/dob_overnatning tjekker frontend i stedet mod ENHVER overlappende aktivitet, ikke kun 'normal'.",
     ]:
         bullet(doc, step)
@@ -1732,11 +1796,11 @@ def build_teknisk():
     heading(doc, "Stamdata-view", 2, "9.6")
     body(doc, (
         "Stamdata-view aktiveres fra menupunktet '⚙️ Stamdata' i venstre menu (kræver 'stamdata'-rettighed). "
-        "View'et indeholder en tab-navigator med ti faner – kun én pane er synlig ad gangen:"
+        "View'et indeholder en tab-navigator med elleve faner – kun én pane er synlig ad gangen:"
     ))
     two_col_table(doc, [
         ["switchStamdataTab(tab)", "Skifter aktiv pane og opdaterer fane-styling (border, farve, vægt)."],
-        ["loadStamdata()",         "Kaldes fra setView('stamdata') og indlæser data til alle ti faner parallelt."],
+        ["loadStamdata()",         "Kaldes fra setView('stamdata') og indlæser data til alle faner parallelt (Stillinger via loadStamdataPositions())."],
         ["btn-stamdata-add-*",     "'+Tilføj'-knap i toolbar vises kun for den aktive fane."],
     ])
     body(doc, (
@@ -1754,7 +1818,10 @@ def build_teknisk():
         "state.agreementKinds via GET /api/employees/agreement-kinds, så medarbejder-modalens "
         "'Aftale'-dropdown (fillAgreementKindSelect()) altid er opdateret uden sideopdatering. "
         "onAgreementKindChange() slår den valgte types requires_agreement_type op og viser/skjuler "
-        "den røde stjerne ved Overenskomsttype-feltet i medarbejder-modalen."
+        "den røde stjerne ved Overenskomsttype-feltet i medarbejder-modalen. Den skifter desuden "
+        "mellem funktionær- og chauffør-felter (afsnit 6.7) og forvælger '0 - Kontor' i "
+        "<select id=\"emp-dispatcher-group\"> for nye funktionærer (rettet 2026-10-01 – ledte før "
+        "efter checkbokse, der ikke længere findes)."
     ))
 
     heading(doc, "Pausehåndtering i oprettelsesmodalen", 2, "9.7")
@@ -2551,7 +2618,7 @@ def build_bruger():
     body(doc, "")
     two_col_table(doc, [
         ["🔑 Brugere",     "Opret/rediger brugere og roller, se hændelseslog (kapitel 11). Kun synlig med 'Brugerstyring'-rettigheden."],
-        ["⚙️ Stamdata",    "Konfiguration af systemets masterdata: overenskomsttyper, overtidssatser, tillæg, løntypekoder (inkl. CSV-kolonneopsætning), fraværstyper, CVR-numre, helligdage, disponentgrupper, aftaletyper og auto-godkendelse (kapitel 17). Alle typer og koder kan oprettes, redigeres og slettes. Kræver 'Stamdata'-rettigheden."],
+        ["⚙️ Stamdata",    "Konfiguration af systemets masterdata: overenskomsttyper, overtidssatser, tillæg, løntypekoder (inkl. CSV-kolonneopsætning), fraværstyper, CVR-numre, stillinger, helligdage, disponentgrupper, aftaletyper og auto-godkendelse (kapitel 17). Alle typer og koder kan oprettes, redigeres og slettes. Kræver 'Stamdata'-rettigheden."],
     ])
 
     note_box(doc,
@@ -2686,7 +2753,7 @@ def build_bruger():
         ["❗ (udråbstegn)",        "Aktiviteten er under 4 timer lang – medregnet andre godkendte aktiviteter samme dag. Kræver kommentar ved godkendelse. Vises kun når status er Afventer eller Deaktiveret – forsvinder ved godkendelse."],
         ["⚠️ (advarselstrekant)", "Aktiviteten er over 12 timer lang. Advarsel om usædvanlig lang vagt. Vises kun når status er Afventer eller Deaktiveret – forsvinder ved godkendelse."],
         ["● (lille prik)",         "Aktiviteten er auto-godkendt af systemet (statistisk baseline) – se kapitel 17."],
-        ["Gult kommentar-mærke",   "Aktiviteten har en kommentar. Hold musen over mærket for at læse den (2026-09-30)."],
+        ["Gult kommentar-mærke",   "Aktiviteten har en kommentar. Hold musen over mærket for at læse den (2026-09-30). Den automatiske tekst 'Split: første del'/'Split: anden del' på opdelte vagter tæller ikke som kommentar og giver intet mærke (2026-10-01)."],
         ["✕ (rødt kryds)",         "Vises kun på dagens sidste importerede vagt. Betyder at kortet formentlig er læst af MIDT i vagten (fx 0 km registreret den dag, eller vagten er usædvanligt kort) – resten af dagen mangler sandsynligvis. Hent en ny fil fra kortet senere og importér igen, så udvides/rettes vagten automatisk."],
     ])
 
@@ -2889,6 +2956,7 @@ def build_bruger():
     bullet(doc, "Ferie, sygdom, feriefri m.fl.: starttidspunktet sættes automatisk til 06:00, og sluttidspunktet beregnes ud fra medarbejderens normaltimer den pågældende dag. Vælger du 'Til dato' for at oprette en periode, oprettes én aktivitet PR. HVERDAG i perioden (ikke én sammenhængende aktivitet) – hver dag tæller sine egne normaltimer (typisk 7,4 t).")
     bullet(doc, "Selvbetalt fridag, Løn andet sted fra og Eksport kan siden 2026-09-22 også oprettes som en periode ('Til dato' udfyldt), på nøjagtig samme måde som Ferie – én aktivitet pr. hverdag i intervallet.")
     bullet(doc, "Afspadsering som periode ('Til dato' udfyldt) følger samme regel: 7,4 t (eller medarbejderens skemalagte timer) pr. hverdag, uanset klokketid. En enkelt afspadseringsdag (uden 'Til dato') kan derimod redigeres til en delvis dag med selvvalgt start-/sluttid, og den faktiske varighed bruges da i lønberegningen. Standardtiderne (06:00 + skemalagte timer) sættes kun, når datoen vælges eller ændres – en manuelt rettet start- eller sluttid bevares (rettet 2026-09-30: før sprang starttiden tilbage til 06:00, så snart den blev ændret).")
+    bullet(doc, "Kursus/Skole fungerer siden 2026-10-01 præcis som afspadsering: som periode ('Til dato') får hver hverdag medarbejderens skemalagte (garanterede) timer, og dage med 0 skemalagte timer springes over. En enkelt dag uden 'Til dato' har frie start-/sluttider.")
     bullet(doc, "En eksisterende afspadsering (også en dag fra en periode, da hver dag er sin egen aktivitet) kan rettes i aktivitetsvinduet via 'Ret starttid'/'Ret sluttid' → 'Gem ændringer'. Den nye varighed bruges i lønberegningen, og ændringen gælder kun den ene dag. Kræver 'Redigér aktiviteter' og en ikke-låst lønperiode.")
 
     body(doc, (
@@ -2903,7 +2971,7 @@ def build_bruger():
             ["Fri",            "Registrerer fridag."],
             ["Løn andet sted fra", "Tilføjet 2026-09-22. Fungerer som Selvbetalt fridag (0 kr., ingen linje i Danløn CSV) – bruges som en kommentar til lønbogholderne om, at dagen bevidst er korrekt uden data i dette system, fx fordi medarbejderen har kørt eksport/for et andet selskab den dag."],
             ["Eksport", "Tilføjet 2026-09-30. Har præcis samme egenskaber som Løn andet sted fra (0 kr., ingen linje i Danløn CSV, kan oprettes som periode)."],
-            ["Skole/kursus",   "Registrerer skole- eller kursusdag."],
+            ["Skole/kursus",   "Registrerer skole- eller kursusdag. Fungerer som Afspadsering: som periode tæller hver hverdag de skemalagte timer (dage med 0 timer springes over); som enkeltdag vælger du selv start- og sluttid."],
             ["Overnatning",    "Registrerer en overnatning (flat sats pr. forekomst – ikke timer). Angiv datoen, eller udfyld 'Til dato' for at registrere flere overnatninger i træk (se note nedenfor). Satsen hentes automatisk fra Stamdata (Tillæg-fanen)."],
             ["Overnatning – DOB",   "Krydses af INDE I Overnatning-oprettelsen (samme modal, ekstra 'DOB'-flueben) – registreres som en separat overnatningstype med sin egen sats i Stamdata → Tillæg. Vises som egen linje i PDF-timesedlen og prøvekørslens Excel-ark. Kommer med i Danløn CSV'en, når der findes en løntypekode for DOB-overnatning i Stamdata → Løntypekoder (fx kode 43) – systemet opretter den ikke selv."],
         ]
@@ -2967,7 +3035,7 @@ def build_bruger():
         "dag i perioden, og en 'Fraværsperiode'-boks øverst i detaljevisningen lader dig ændre "
         "'Fra dato' og/eller 'Til dato'. Klik 'Gem periodedatoer' for at gennemføre ændringen."
     ))
-    bullet(doc, "Dage der TILFØJES til perioden, får en ny aktivitet med samme standardtimer som ved oprettelse (skemalagte timer, eller 7,4 t hvis de er 0; feriefri altid 7,4 t). Kun for afspadsering springes en dag med 0 skemalagte timer over.")
+    bullet(doc, "Dage der TILFØJES til perioden, får en ny aktivitet med samme standardtimer som ved oprettelse (skemalagte timer, eller 7,4 t hvis de er 0; feriefri altid 7,4 t). Kun for afspadsering og skole/kursus springes en dag med 0 skemalagte timer over.")
     bullet(doc, "Dage der FJERNES fra perioden, bliver PERMANENT slettet – ikke deaktiveret. Systemet viser altid en opsummering ('N dage slettes permanent / N dage oprettes') til bekræftelse, før noget gennemføres.")
     bullet(doc, "For en Overnatnings-periode (afsnit 6.2) tælles ALLE kalenderdage i det nye interval, inkl. weekend/helligdage – ikke kun hverdage som for de øvrige fraværstyper.")
     note_box(doc,
@@ -2984,14 +3052,25 @@ def build_bruger():
     body(doc, "Klik på 'Medarbejdere' i venstre menu for at se og redigere medarbejderstamdata.")
 
     heading(doc, "Søg og filtrér", 2, "7.1")
-    body(doc, "Øverst på siden kan medarbejderlisten indsnævres på tre måder, som kan kombineres frit:")
-    bullet(doc, "skriv et navn eller lønnummer for hurtigt at finde en bestemt medarbejder.", "Søgefelt: ")
+    body(doc, "Øverst på siden kan medarbejderlisten indsnævres på flere måder, som kan kombineres frit:")
+    bullet(doc, (
+        "skriv et navn, et lønnummer eller et telefon-/mobilnummer. Ved telefonnumre ignoreres "
+        "mellemrum og +45, så '12345678' finder '+45 12 34 56 78' (skriv mindst 3 cifre)."
+    ), "Søgefelt: ")
     bullet(doc, (
         "vælg én afdeling for kun at se dens medarbejdere, eller 'Ingen gruppe' for at se "
         "medarbejdere uden en tilknyttet afdeling. Alle afdelinger er med i listen, også dem der "
         "i Stamdata er sat til ikke at vises i aktivitetsoversigten."
     ), "Afdeling: ")
     bullet(doc, "medtag fratrådte/deaktiverede medarbejdere i listen.", "Vis inaktive: ")
+    bullet(doc, "Alle stillinger, 'Ingen stilling' eller én bestemt stilling.", "Stilling: ")
+    bullet(doc, "Medlem / Ikke medlem.", "Personaleforening: ")
+    bullet(doc, "Ja / Nej.", "Natarbejdetillæg: ")
+    bullet(doc, "Elev / Ikke elev.", "Elev: ")
+    body(doc, (
+        "Listen viser 'Lønnr. · Stilling' under hvert navn (stillingen udelades, hvis den ikke er "
+        "udfyldt). Filtrene gælder både liste, tabel og Excel-eksport (afsnit 7.8)."
+    ))
 
     heading(doc, "Opret ny medarbejder", 2, "7.2")
     body(doc, "Klik '+ Opret medarbejder' og udfyld felterne:")
@@ -3003,22 +3082,38 @@ def build_bruger():
             ["Overenskomsttype",    "Afhænger af Aftale", "Bestemmer timesatsen. Vælg fra listen der stammer fra Stamdata (Overenskomsttyper-fanen). Kræver den valgte Aftale-type ikke overenskomsttype (styres i Stamdata), skjules feltet helt og tømmes."],
             ["Disponentgruppe",     "Nej","Afdeling – dropdown, en medarbejder kan højst tilhøre én gruppe ad gangen. Bruges til at filtrere aktivitetstabellen og fraværsoversigt-eksporten."],
             ["Vognnummer ved fravær", "Ja", "Søgbart felt (vælg fra Vognpark). Vognnummeret forudfyldes, når der registreres fravær for medarbejderen (2026-09-30). Erstatter disponentgruppens vogn – er feltet tomt, er vognnummeret tomt ved fravær. Eksisterende medarbejdere har feltet tomt, indtil det udfyldes."],
-            ["Fast bil",            "Nej","Afkryds for at medarbejderen skal foreslås som standardchauffør på en bestemt vogn i Dagsplan (kapitel 13). Vises herefter et søgbart vognnummer-felt, ikke begrænset til egen disponentgruppe."],
-            ["Særaftale: Øvrig overtid for alle timer", "Nej", "Afkryds KUN for en medarbejder med en individuel aftale om at alle arbejdstimer skal give Øvrig overtid oveni normal løn, uden dagligt loft (se afsnit 9.6). Berører lønberegningen direkte – brug med omtanke."],
-            ["Afløser",             "Nej", "Afkryd for en afløser/substitutmedarbejder. Medarbejderen får IKKE søgnehelligdagsbetaling (kode 4/63) på søndage/helligdage medmindre vedkommende faktisk har kørt den dag – se afsnit 9.5. Farvemarkeres separat i medarbejderlisten, Vagtplan og Aktivitetsoversigten."],
+            ["Fast bil",            "Nej (kun chauffør)","Afkryds for at medarbejderen skal foreslås som standardchauffør på en bestemt vogn i Dagsplan (kapitel 13). Vises herefter et søgbart vognnummer-felt, ikke begrænset til egen disponentgruppe."],
+            ["Særaftale: Øvrig overtid for alle timer", "Nej (kun chauffør)", "Afkryds KUN for en medarbejder med en individuel aftale om at alle arbejdstimer skal give Øvrig overtid oveni normal løn, uden dagligt loft (se afsnit 9.6). Berører lønberegningen direkte – brug med omtanke."],
+            ["Afløser",             "Nej (kun chauffør)", "Afkryd for en afløser/substitutmedarbejder. Medarbejderen får IKKE søgnehelligdagsbetaling (kode 4/63) på søndage/helligdage medmindre vedkommende faktisk har kørt den dag – se afsnit 9.5. Farvemarkeres grønt i medarbejderlisten, Vagtplan og Aktivitetsoversigten."],
             ["CVR-nummer",          "Nej","Kun synligt hvis der er oprettet 2 eller flere CVR-numre i Stamdata → CVR nummer. Vælger hvilket CVR-nummer medarbejderens Danløn-eksport og PDF-timeseddel skal bruge. Der er intet tomt valg – standard-CVR'et er forvalgt og gemmes på medarbejderen. Er feltet skjult (kun ét CVR), bruges automatisk standard-CVR'et."],
-            ["Lønnummer",           "Ja", "Unikt lønnummer (bruges i Danløn-eksporten)."],
-            ["Førerkortnummer",     "Nej","EU-førerkortnummer – påkrævet for at importere .ddd-filer korrekt. Skjules for aftaletypen 'Funktionær'."],
-            ["Initialer",           "Nej","Skal svare til brugerens login-initialer, hvis medarbejderen skal kunne redigere sin egen linje i Vagtplan."],
+            ["Lønnummer",           "Ja", "Unikt lønnummer (bruges i Danløn-eksporten). Ved oprettelse foreslår systemet automatisk det højeste lønnummer fra 34000 og op + 1 – forslaget kan overskrives. Når du forlader feltet, tjekkes nummeret, og er det allerede i brug, vises en rød besked med navnet på den medarbejder der har det. Du kan ikke gemme, før nummeret er ledigt."],
+            ["Førerkortnummer",     "Ja (kun chauffør)","EU-førerkortnummer – bruges til at matche .ddd-filer. Påkrævet for chauffører (2026-10-01), skjult for funktionærer."],
+            ["Stilling",            "Ja", "Vælg fra listen, der vedligeholdes i Stamdata → Stillinger (2026-10-01)."],
+            ["Initialer",           "Ja for funktionær","Skal svare til brugerens login-initialer, hvis medarbejderen skal kunne redigere sin egen linje i Vagtplan. Påkrævet for funktionærer."],
             ["Navn",                "Ja", "Fornavn og efternavn."],
             ["Adresse / postnummer","Nej","Adresseoplysninger."],
-            ["E-mail / telefon / mobil", "Nej","Kontaktoplysninger. E-mail bruges til at sende timesedler. Tømmer du et af de valgfri felter (fx e-mail, telefon, adresse, initialer eller førerkortnummer), gemmes det tomt (rettet 2026-09-30 – før blev den gamle værdi stående)."],
+            ["Email",               "Ja", "Hedder 'Email (Poulschou)' for funktionærer og 'Email (Privat)' for chauffører – det er samme felt. Bruges bl.a. til at sende timesedler."],
+            ["Telefon / mobil",     "Nej","Kontaktoplysninger – kan søges på (afsnit 7.1). Tømmer du et af de valgfri felter (fx telefon, adresse eller anciennitetsdato), gemmes det tomt."],
             ["Ansættelsesdato",     "Ja", "Startdato for ansættelsen. Klik på feltet for at åbne en kalender med måned- og årstaldropdown."],
             ["Fratrædelsesdato",    "Nej","Udfyldes KUN ved fratrædelse. Default er 31-12-9999. Klik på feltet for at åbne kalender-pickeren."],
+            ["Anciennitetsdato",    "Nej","Bruges KUN til jubilæumsadvarslen (afsnit 7.9). Er den tom, regnes jubilæum fra ansættelsesdatoen. Påvirker ikke 9-måneders-varslet eller satser."],
+            ["CPR-nummer",          "Nej","Format ddmmåå-xxxx – de første 6 cifre skal være en gyldig dato. Uden rettigheden 'Se CPR-nummer' vises det som fx 120385-****. Lader du det maskerede felt stå, bevares det gemte CPR; skriver du et nyt fuldt CPR, overskrives det."],
             ["Aktiv",               "—", "Afkryd for at medarbejderen er aktiv i systemet."],
             ["Fuldlønnet",          "—", "Afkryd hvis medarbejderen er fuldlønnet."],
+            ["Medlem af Personaleforening", "—", "Afkrydset som standard ved nye medarbejdere. Eksisterende medarbejdere er ikke afkrydset og skal rettes manuelt."],
+            ["Elev",                "— (kun chauffør)", "Afkryds for en elev. Så vises Elev startdato og Elev slutdato, som begge er påkrævede (slut efter start). Har ingen betydning for lønnen – bruges til elevadvarsel, filter og gul farvemarkering."],
+            ["Natarbejdetillæg",    "— (kun chauffør)", "Markering til filtrering og tabelvisning. Påvirker ikke lønberegningen."],
             ["§56",                 "—", "Afkryd hvis medarbejderen har en §56-aftale. Herefter skal start- og slutdato udfyldes (begge påkrævede, rød *) – slutdatoen skal ligge efter startdatoen. Se afsnit 7.6 om §56-advarslen."],
         ]
+    )
+    note_box(doc,
+        "Felter der ikke gælder for en funktionær (Førerkortnummer, Elev, Natarbejdetillæg, Afløser, "
+        "Fast bil og Særaftale) skjules, men den gemte værdi bevares, hvis du skifter tilbage. Gemmer "
+        "du en funktionær, der stadig har Afløser, Fast bil eller Særaftale afkrydset fra "
+        "chauffør-tiden, spørger systemet for hver markering, om den skal beholdes eller fjernes. "
+        "De nye påkrævede felter (Stilling, Email, Initialer/Førerkortnummer) gør ikke eksisterende "
+        "medarbejdere ugyldige – de skal først udfyldes, næste gang medarbejderen gemmes.",
+        "GODT AT VIDE"
     )
     note_box(doc,
         "De tilgængelige aftaletyper administreres i Stamdata-modulet under fanen 'Aftale'. Her "
@@ -3164,6 +3259,52 @@ def build_bruger():
         "oprettes ingen aktivitet overhovedet.",
         "GODT AT VIDE"
     )
+
+    heading(doc, "Tabelvisning og Excel-eksport", 2, "7.8")
+    body(doc, (
+        "Med rettigheden 'Tabelvisning af medarbejdere' vises knappen 'Tabel' i værktøjslinjen. "
+        "Den skifter mellem liste og tabel, og valget huskes i din browser. Tabellen har kolonnerne "
+        "Lønnummer, Navn, Fuldlønnet, Natarbejdetillæg, Stilling, Disponentgruppe, Ansættelsesdato, "
+        "Telefon, Mobil, Email og Elev (med elevperiode). Klik på en kolonneoverskrift for at "
+        "sortere; klik igen for at vende rækkefølgen. Klik på en række åbner medarbejderen, hvis du "
+        "har 'Tilføj medarbejdere'."
+    ))
+    body(doc, (
+        "Med rettigheden 'Eksportér medarbejderregister' vises 'Eksportér til Excel' i tabelvisningen. "
+        "Filen (Medarbejderregister_ÅÅÅÅ-MM-DD.xlsx) hentes direkte i browseren og indeholder præcis "
+        "de medarbejdere og den rækkefølge, du ser – efter filtre, søgning og sortering. Elev er delt "
+        "i tre kolonner: Elev, Elev start og Elev slut. CPR-nummer kommer aldrig med, hverken i tabel "
+        "eller eksport."
+    ))
+    body(doc, (
+        "Elever markeres med gul farve (avatar i listen, rækken i tabellen og navnecellen i Vagtplan "
+        "og Aktivitetsoversigten), så de kan skelnes fra afløsere, der fortsat er grønne. Er en "
+        "medarbejder både elev og afløser, vises elev-farven."
+    ))
+
+    heading(doc, "Mærkedagsadvarsler", 2, "7.9")
+    body(doc, (
+        "Ud over anciennitets- og §56-varslerne kan systemet vise en pop-up efter login om tre "
+        "slags mærkedage. Hver kræver sin egen rettighed i Brugerstyring – kun Administrator har "
+        "dem fra start:"
+    ))
+    header_table(doc,
+        ["Advarsel", "Hvornår", "Rettighed"],
+        [
+            ["Jubilæum 25, 40 og 50 år", "Regnes fra Anciennitetsdato, eller fra Ansættelsesdato hvis den er tom", "Jubilæumsadvarsel"],
+            ["Elev slutter",             "Ud fra Elev slutdato (kun chauffører med Elev afkrydset)",            "Elevadvarsel"],
+            ["Rund fødselsdag",          "10, 20, 30 … år – fødselsdatoen læses af CPR-nummeret",               "Fødselsdagsadvarsel"],
+        ]
+    )
+    body(doc, (
+        "Advarslen vises fra samme dato måneden før til og med selve dagen (fx en fødselsdag den "
+        "15/11 fra den 15/10). Er dagen passeret, vises den ikke. Kun aktive medarbejdere tæller med. "
+        "Pop-up'en viser den første advarsel og '+ N flere'; klik 'Gå til medarbejder' for at åbne "
+        "medarbejderen. Klikker du 'OK' eller 'Luk', kommer netop den advarsel ikke igen for dig – men "
+        "kolleger ser den stadig, og næste runde fødselsdag/jubilæum giver en ny advarsel. Ændres "
+        "elevens slutdato, kommer elevadvarslen igen. Lukker du med × i hjørnet, vises den igen ved "
+        "næste login."
+    ))
 
     # ── 8. Helligdagskalender ─────────────────────────────────────────────
     heading(doc, "Helligdagskalender", 1, "8")
@@ -3553,8 +3694,8 @@ def build_bruger():
             ["import_ddd",                  "Importer .ddd",                      "Menupunktet 'Importer .ddd' – import af tachografdata."],
             ["user_management",             "Brugerstyring",                     "Menupunktet '🔑 Brugere' – denne side (brugere, roller, hændelseslog)."],
             ["reopen_period",               "Åbn låst lønperiode",                "Mulighed for at genåbne en periode hvor der allerede er kørt løn."],
-            ["stamdata",                     "Stamdata",                          "Menupunktet '⚙️ Stamdata' – alle ti faner. Helligdage kræver 'Administrér helligdage', Auto-godkendelse-fanen desuden 'manage_auto_approval'."],
-            ["view_employees",              "Se medarbejdere",                   "Menupunktet 'Medarbejdere' (læse-adgang) og medarbejdernes kontakt-, løn- og førerkortoplysninger. Uden den ser brugeren stadig navne i fx Aktiviteter og Vagtplan, men ikke adresse, e-mail, telefon, førerkortnummer, timesats og CVR."],
+            ["stamdata",                     "Stamdata",                          "Menupunktet '⚙️ Stamdata' – alle elleve faner (inkl. Stillinger). Helligdage kræver 'Administrér helligdage', Auto-godkendelse-fanen desuden 'manage_auto_approval'."],
+            ["view_employees",              "Se medarbejdere",                   "Menupunktet 'Medarbejdere' (læse-adgang) og medarbejdernes kontakt-, løn- og førerkortoplysninger. Uden den ser brugeren stadig navne i fx Aktiviteter og Vagtplan, men ikke adresse, e-mail, telefon, førerkortnummer, timesats, CVR og CPR."],
             ["manage_employees",            "Tilføj medarbejdere",               "Opret/rediger medarbejdere under 'Medarbejdere'."],
             ["view_vehicles",               "Se vognpark",                       "Menupunktet 'Vognpark' (læse-adgang)."],
             ["manage_vehicles",             "Tilføj vogn",                       "Opret/rediger køretøjer under 'Vognpark'."],
@@ -3575,6 +3716,12 @@ def build_bruger():
             ["payroll_settlement_export",   "Lønafregning (eksport)",            "Eksportér Lønafregning som CSV. Kræver låst periode, medmindre brugeren er administrator."],
             ["dagsplan_view",               "Se dagsplan",                       "Menupunktet 'Dagsplan' (læse-adgang, se kapitel 13)."],
             ["dagsplan_edit",               "Redigere dagsplan",                 "Redigér tildelinger og 'informeret'-afkrydsning, meld/fjern materielt fravær. Tildeles ikke automatisk nogen rolle."],
+            ["view_cpr",                    "Se CPR-nummer",                     "Se medarbejdernes fulde CPR-nummer. Uden den vises de sidste 4 cifre som ****. Kun Administrator fra start."],
+            ["jubilee_alert",               "Jubilæumsadvarsel",                 "Pop-up om 25-, 40- og 50-års jubilæum (afsnit 7.9). Kun Administrator fra start."],
+            ["elev_alert",                  "Elevadvarsel",                      "Pop-up når en elevtid slutter (afsnit 7.9). Kun Administrator fra start."],
+            ["birthday_alert",              "Fødselsdagsadvarsel",               "Pop-up om runde fødselsdage (afsnit 7.9). Kun Administrator fra start."],
+            ["employee_table_view",         "Tabelvisning af medarbejdere",      "Knappen 'Tabel' på Medarbejdere-siden (afsnit 7.8). Kun Administrator fra start."],
+            ["employee_export",             "Eksportér medarbejderregister",     "Knappen 'Eksportér til Excel' i tabelvisningen (afsnit 7.8). Kun Administrator fra start."],
         ],
         [Cm(3.5), Cm(4), Cm(8.5)]
     )

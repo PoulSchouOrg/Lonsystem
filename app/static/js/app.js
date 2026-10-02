@@ -4182,7 +4182,9 @@ async function checkMilestoneAlerts() {
       await loadEmployees();
       openEditEmployee(a.employee_id);
     };
+    // "Luk" afviser advarslen præcis som "OK" – den kommer ikke igen for denne bruger
     document.getElementById("btn-milestone-alert-ok").onclick = () => dismissMilestoneAlert(a.employee_id, a.alert_key);
+    document.getElementById("btn-milestone-alert-close").onclick = () => dismissMilestoneAlert(a.employee_id, a.alert_key);
     openModal("modal-milestone-alert");
   } catch (e) {
     console.error("Mærkedags-advarsel check fejlede:", e);

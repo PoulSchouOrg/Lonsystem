@@ -699,6 +699,17 @@ Ny sidebar-side der digitaliserer den daglige fordeling af vogne til chauffører
 - **Split** bevarer segmenternes 4. element (rettet type) – før ValueError ved "Ret til andet arbejde" + split.
 - **Lønkørsel "I alt" = Lønafregning:** `settlement_total_kr(calc, days=None)` i `payroll_settlement_router.py` bruges af både `_employee_settlement_data()` og `payroll_preview()` (lazy import) → `grand_total_kr` i preview-svaret. `totals["ferie"]` → `ferie_hours` (kun visning, ikke i CSV). app.js viser Ferie-linje og Afspadsering med sats. PDF-timesedlen er bevidst uændret (ingen Ferie).
 
+## Medarbejderregister (2026-10-01, employees.py + stamdata.py + utils/employee_rules.py + models.py + session.py + app.js)
+Spec: `docs/superpowers/specs/2026-10-01-medarbejderregister.md`. Funktionær = `agreement_kind == "funktionaer"` (`FUNKTIONAER`), chauffør = alt andet.
+- **Nye kolonner** på `employees`: `position_id` (FK `master_positions`), `seniority_date`, `cpr_number`, `elev`/`elev_start_date`/`elev_end_date`, `personaleforening` (model-default True, migrering 0), `natarbejde_tillaeg`. Ny model `MasterPosition(id, name UNIQUE)`.
+- **Validering:** `_validate_employee_fields(db, kind, values, check)` – Stilling+Email altid, Initialer (funktionær) / Førerkort (chauffør), elev-datoer. Kun felter i `check` (ved PATCH = `model_fields_set`). Klient: `confirmEmployee()`.
+- **CPR:** `validate_cpr()`/`cpr_birthdate()`/`mask_cpr()`/`is_masked_cpr()` i `employee_rules.py`. `_apply_cpr_mask()` uden `view_cpr`; maskeret værdi i PATCH = uændret. `cpr_number` er i `_PRIVATE_EMPLOYEE_FIELDS`.
+- **Endpoints:** `GET /api/employees/next-employee-number` (`next_employee_number()`, ≥34000 +1), `GET /check-number?number&exclude_id`, `GET /positions` (`_employee_list_access`), `GET /milestone-alerts` + `POST /{id}/dismiss-milestone-alert` (alert_key fx `birthday_40`/`jubilee_25`/`elev_ÅÅÅÅ-MM-DD`, gemt i `Paragraf56AlertDismissal`), `POST /export-xlsx` (body `employee_ids` i klientens rækkefølge, `employee_export`). Stamdata: `GET/POST/PATCH/DELETE /api/stamdata/positions` (sletning afvist hvis i brug).
+- **§56-reset:** ændret §56-slutdato sletter nu kun dismissals med `alert_type in ("upcoming","expired")`.
+- **Nye permissions:** `view_cpr`, `jubilee_alert`, `elev_alert`, `birthday_alert`, `employee_table_view`, `employee_export` – kun admin (ingen `_ensure_*`).
+- **Frontend:** `_filteredEmployees()` (søgning inkl. `_normalizePhone()`, filtre stilling/personaleforening/natarbejde/elev), `renderEmployeeList()` liste/tabel (`_EMP_TABLE_COLUMNS`, `sortEmployeeTable()`, localStorage `employeeViewMode`), `exportEmployeesXlsx()`, `checkEmployeeNumber()`, `_showEmpHiddenFlags()`/`confirmEmpHiddenFlags()` (modal `modal-emp-hidden-flags`), `checkMilestoneAlerts()` (modal `modal-milestone-alert`; både OK og Luk afviser, × lukker kun), `loadStamdataPositions()`. Elev-farve: `isElev()`, `empCellHighlight()` → `elev-highlight` (#fff3b8), avatar #e0a800, tabel `elev-row`. Felter kun for chauffører har klassen `emp-driver-only`.
+- **Kommentar-mærke** (`.comment-note` i `renderCellActivity()`) vises ikke for split-delenes automatiske kommentar "Split: første/anden del".
+
 ---
 
 ## Vigtige mønstre

@@ -2,7 +2,7 @@
 
 **Kilde:** `Medarbejder registeret i PS Løn.docx` (TO-BE-afsnittet) + afklaringer med Sofie 2026-10-01
 **Dato:** 2026-10-01
-**Status:** GODKENDT 2026-10-01 – ikke implementeret. Plan: `docs/superpowers/plans/2026-10-01-medarbejderregister.md`.
+**Status:** GODKENDT og IMPLEMENTERET 2026-10-01 (commit 017d5ca). Afvigelse: Excel-eksporten er `POST /api/employees/export-xlsx` med `employee_ids` i klientens rækkefølge (ikke GET med filtre). Plan: `docs/superpowers/plans/2026-10-01-medarbejderregister.md`.
 
 ---
 

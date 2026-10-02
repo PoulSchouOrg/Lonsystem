@@ -32,6 +32,12 @@
 | fast_bil_vehicle_id | INTEGER FK NULL | Den faste vogn (kun relevant når `fast_bil=true`), ikke begrænset til egen disponentgruppe |
 | absence_vehicle_id | INTEGER FK NULL | "Vognnummer ved fravær" (2026-09-30) – forudfyldes som vognnummer ved fravær. Påkrævet i medarbejder-modalen (kun frontend); ingen fallback til disponentgruppen |
 | ot_extra_alle_timer | BOOLEAN NOT NULL DEFAULT FALSE | Særaftale: alle arbejdstimer giver Øvrig overtid (kode 9) oveni normal løn, uden dagligt loft – se `OVERTIME_RULES.md` |
+| position_id | INTEGER FK NULL | Stilling (2026-10-01) – FK til `master_positions`. Påkrævet ved gem (server + klient), NULL tilladt i DB for eksisterende |
+| seniority_date | DATE NULL | Anciennitetsdato – bruges KUN til jubilæumsadvarsel (25/40/50 år) |
+| cpr_number | VARCHAR(11) NULL | CPR `ddmmåå-xxxx`. Maskeres server-side (`ddmmåå-****`) uden `view_cpr`; intet unikhedstjek |
+| elev, elev_start_date, elev_end_date | BOOLEAN NOT NULL DEFAULT FALSE / DATE NULL | Elev (kun chauffører). Datoer påkrævede når `elev=true`; ingen lønmæssig effekt |
+| personaleforening | BOOLEAN NOT NULL | Medlem af Personaleforening – default TRUE for nye, eksisterende migreret til FALSE |
+| natarbejde_tillaeg | BOOLEAN NOT NULL DEFAULT FALSE | Natarbejdetillæg (kun chauffører) – kun filter/tabel, ingen beregning |
 | created_at | DATETIME | Oprettelsestidspunkt |
 | updated_at | DATETIME | Sidst opdateret |
 
@@ -42,6 +48,17 @@
 Nye aftaletyper kan tilføjes via Stamdata (`master_agreement_kinds`-tabellen); timesatser kommer ikke længere fra en hårdkodet type-enum, men fra Excel-arket ("Overenskomsttyper og timesatser.xlsx") pr. `agreement_type`.
 
 Anciennitet beregnes automatisk fra `hire_date`. Pop-up ved 9 måneder hvis `anciennitet_dismissed_at` er tom (se `anciennitet_alert`-tilladelsen).
+
+Mærkedagsadvarsler (jubilæum, elev slutter, rund fødselsdag – 2026-10-01) afvises pr. bruger i `paragraf_56_alert_dismissals` med `alert_type` = begivenheden (`jubilee_25`, `birthday_40`, `elev_ÅÅÅÅ-MM-DD`).
+
+---
+
+### `master_positions` (Stillinger, 2026-10-01)
+
+| Felt | Type | Beskrivelse |
+|------|------|-------------|
+| id | INTEGER PK | Intern ID |
+| name | VARCHAR(100) UNIQUE NOT NULL | Stillingens navn. Vedligeholdes i Stamdata → Stillinger; kan ikke slettes, mens en medarbejder bruger den |
 
 ---
 
