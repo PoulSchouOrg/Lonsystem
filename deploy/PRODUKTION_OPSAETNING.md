@@ -7,10 +7,10 @@ Alt køres i almindelig PowerShell/cmd — ingen venv, ligesom udviklingsmaskine
 ## Del 1 – Én gang, på DENNE (bærbare) maskine
 
 1. Opret en konto på github.com hvis du ikke har en, og opret et **privat** repo,
-   fx `lonsystem`. Kopiér repoets URL (fx `https://github.com/SofieSkjodt/Lonsystem.git`).
+   fx `lonsystem`. Kopiér repoets URL (fx `https://github.com/PoulSchouOrg/Lonsystem.git`).
 2. Kør i denne mappe:
    ```
-   git remote add origin https://github.com/SofieSkjodt/Lonsystem.git
+   git remote add origin https://github.com/PoulSchouOrg/Lonsystem.git
    git push -u origin main
    ```
    Nu ligger koden centralt på GitHub. `.env` og databasen bliver IKKE sendt med
@@ -37,7 +37,7 @@ Alt køres i almindelig PowerShell/cmd — ingen venv, ligesom udviklingsmaskine
 ### 2.3 Hent koden
 ```
 cd C:\Users\LoenPC
-git clone https://github.com/SofieSkjodt/Lonsystem.git Lonsystem
+git clone https://github.com/PoulSchouOrg/Lonsystem.git Lonsystem
 cd C:\Users\LoenPC\Lonsystem
 ```
 Placér den her — **ikke** i en OneDrive-mappe (se forklaring i tidligere svar:
