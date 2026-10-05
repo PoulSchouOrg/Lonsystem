@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Boolean, Date, DateTime, Numeric,
-    ForeignKey, Text, Enum, JSON, Index, UniqueConstraint, text
+    ForeignKey, Text, Enum, JSON, Index, UniqueConstraint
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.sql import func
@@ -589,17 +589,11 @@ class EmployeeSupplement(Base):
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False, default=date(9999, 12, 31))
     created_at = Column(DateTime, server_default=func.now())
+    # Sat når tillægget afsluttes via "Afslut" (kun til visning: "Afsluttet").
+    # Tillægget tæller stadig med for de dage, det var gyldigt.
+    deactivated_at = Column(DateTime, nullable=True)
 
     employee = relationship("Employee")
-
-    __table_args__ = (
-        Index(
-            "uq_employee_supplements_one_open_row",
-            "employee_id",
-            unique=True,
-            sqlite_where=text("end_date = '9999-12-31'"),
-        ),
-    )
 
 
 class EmployeeSpringerFlag(Base):

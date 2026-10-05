@@ -23,7 +23,7 @@ from database.session import get_db
 
 from calculators.overtime import OT_13_KEY, OT_BEFORE_KEY, OT_EXTRA_KEY
 from calculators.pay_period import get_or_create_period_for_date
-from calculators.rates_loader import get_active_supplement_for_period, load_agreement_types_from_db
+from calculators.rates_loader import load_agreement_types_from_db
 
 from routers.payroll_router import _active_employees, _calculate_employee
 
@@ -190,8 +190,8 @@ def _employee_settlement_data(emp, start: date, end: date, db: Session) -> dict:
     calc = _calculate_employee(emp, start, end, db)
 
     agreement_rate = load_agreement_types_from_db(db).get(emp.agreement_type, Decimal("0"))
-    supplement = get_active_supplement_for_period(db, emp.id, start, end)
-    personal_supplement_rate = supplement.value if supplement else Decimal("0")
+    # Vægtet gennemsnit over periodens normaltimer (flere tillæg summeres dag for dag).
+    personal_supplement_rate = Decimal(str(calc["supplement_rate"]))
 
     springer_kr = (
         Decimal(str(calc["normal_hours"])) * Decimal(str(calc["springer_rate"]))

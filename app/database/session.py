@@ -287,15 +287,27 @@ def _migrate():
             if col not in emp_cols3:
                 conn.execute(f"ALTER TABLE employees ADD COLUMN {col} {ddl}")
                 conn.commit()
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_employee_supplements_one_open_row "
-            "ON employee_supplements(employee_id) WHERE end_date = '9999-12-31'"
-        )
+        # Flere aktive tillæg pr. medarbejder er tilladt siden 2026-10-05 (summeres).
+        conn.execute("DROP INDEX IF EXISTS uq_employee_supplements_one_open_row")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS ix_employee_supplements_employee_id "
             "ON employee_supplements(employee_id)"
         )
         conn.commit()
+        sup_cols2 = {row[1] for row in conn.execute("PRAGMA table_info(employee_supplements)")}
+        if "deactivated_at" not in sup_cols2:
+            conn.execute("ALTER TABLE employee_supplements ADD COLUMN deactivated_at DATETIME")
+            # Tillæg der allerede er afsluttet via "Afslut" (før 2026-10-05 gjaldt de
+            # perioden ud) markeres som afsluttet; sidste gyldige dag = afslutningsdagen.
+            conn.execute(
+                "UPDATE employee_supplements SET "
+                "deactivated_at = (SELECT MAX(a.timestamp) FROM audit_logs a "
+                "  WHERE a.action = 'employee_supplement_end' AND a.entity_id = employee_supplements.id), "
+                "end_date = MAX(start_date, (SELECT date(MAX(a.timestamp), 'localtime') FROM audit_logs a "
+                "  WHERE a.action = 'employee_supplement_end' AND a.entity_id = employee_supplements.id)) "
+                "WHERE id IN (SELECT entity_id FROM audit_logs WHERE action = 'employee_supplement_end')"
+            )
+            conn.commit()
 
         # Migrer eksisterende faste sats-kilde-værdier til det nye id-baserede skema
         # (overtime:<id> / supplement:<id>) – idempotent, rammer kun rækker der

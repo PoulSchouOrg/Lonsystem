@@ -1,13 +1,12 @@
-from datetime import date, timedelta
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from auth import log_action, require_permission
-from calculators.rates_loader import get_active_supplement_for_period
+from calculators.rates_loader import get_supplements_for_period
 from database.models import AppUser, Employee, EmployeeSupplement
 from database.schemas import EmployeeSupplementCreate, EmployeeSupplementResponse
 from database.session import get_db
@@ -26,22 +25,11 @@ def _create_supplement(db: Session, employee_id: int, start_date: date, value: D
     emp = db.query(Employee).filter(Employee.id == employee_id).first()
     if not emp:
         raise HTTPException(404, "Medarbejder ikke fundet")
-    open_row = (
-        db.query(EmployeeSupplement)
-        .filter(EmployeeSupplement.employee_id == employee_id, EmployeeSupplement.end_date == _OPEN_ENDED)
-        .first()
-    )
-    if open_row and start_date <= open_row.start_date:
-        raise HTTPException(400, f"Startdato skal være efter {open_row.start_date.isoformat()}")
-    if open_row:
-        open_row.end_date = start_date - timedelta(days=1)
+    # En medarbejder kan have flere aktive tillæg samtidig (summeres i lønberegningen),
+    # så et nyt tillæg lukker IKKE eksisterende – det gøres med "Afslut" (2026-10-05).
     new_row = EmployeeSupplement(employee_id=employee_id, start_date=start_date, value=value)
     db.add(new_row)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(409, "Der skete en samtidig ændring for denne medarbejder — prøv igen")
+    db.commit()
     db.refresh(new_row)
     return new_row
 
@@ -59,6 +47,7 @@ def _to_response(row: EmployeeSupplement) -> EmployeeSupplementResponse:
         start_date=row.start_date,
         end_date=row.end_date,
         is_active=row.start_date <= today <= row.end_date,
+        deactivated=row.deactivated_at is not None,
     )
 
 
@@ -83,7 +72,7 @@ def list_supplements(
     return [_to_response(r) for r in rows]
 
 
-@router.get("/active/{employee_id}", response_model=Optional[EmployeeSupplementResponse])
+@router.get("/active/{employee_id}", response_model=list[EmployeeSupplementResponse])
 def get_active_supplement(
     employee_id: int,
     current_user: AppUser = Depends(_supplements_access),
@@ -92,8 +81,7 @@ def get_active_supplement(
     if not db.query(Employee).filter(Employee.id == employee_id).first():
         raise HTTPException(404, "Medarbejder ikke fundet")
     today = date.today()
-    row = get_active_supplement_for_period(db, employee_id, today, today)
-    return _to_response(row) if row else None
+    return [_to_response(r) for r in get_supplements_for_period(db, employee_id, today, today)]
 
 
 @router.post("", response_model=EmployeeSupplementResponse, status_code=201)
@@ -119,14 +107,16 @@ def end_supplement(
     if not row:
         raise HTTPException(404, "Tillæg ikke fundet")
     today = date.today()
-    if row.end_date != _OPEN_ENDED or not (row.start_date <= today <= row.end_date):
-        raise HTTPException(400, "Kun det aktuelt aktive tillæg kan afsluttes")
-    from calculators.pay_period import get_or_create_period_for_date
-    current_period = get_or_create_period_for_date(today, db)
-    row.end_date = current_period.end_date
+    if (row.deactivated_at is not None or row.end_date != _OPEN_ENDED
+            or not (row.start_date <= today <= row.end_date)):
+        raise HTTPException(400, "Kun aktive tillæg uden slutdato kan afsluttes")
+    # Afslut: dags dato er sidste gyldige dag (bekræftet 2026-10-05). Tillægget
+    # tæller stadig med i de perioder/dage, hvor det var gyldigt.
+    row.deactivated_at = datetime.now()
+    row.end_date = today
     db.commit()
     log_action(db, current_user, "employee_supplement_end", "employee_supplement", row.id,
-               f"Afsluttet, sidste gyldige dag {current_period.end_date.isoformat()}")
+               f"Afsluttet, sidste gyldige dag {today.isoformat()}")
     db.commit()
     db.refresh(row)
     return _to_response(row)

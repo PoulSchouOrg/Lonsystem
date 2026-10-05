@@ -468,6 +468,7 @@ class EmployeeSupplementResponse(BaseModel):
     start_date: date
     end_date: date
     is_active: bool
+    deactivated: bool = False
 
     model_config = {"from_attributes": True}
 

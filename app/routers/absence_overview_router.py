@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user, require_permission
 from calculators.pay_period import get_or_create_period_for_date
-from calculators.rates_loader import load_agreement_types_from_db, get_active_supplement_for_period
+from calculators.rates_loader import get_supplements_for_period, load_agreement_types_from_db, supplement_sum_on
 from database.models import Activity, ActivityStatus, AppUser, DispatcherGroup, Employee
 from database.session import get_db
 from utils.natural_sort import natural_key
@@ -111,22 +111,26 @@ def _compute_data(d_from: date, d_to: date, db: Session) -> dict:
     for act in activities:
         emp = act.employee
         if emp.id not in emp_map:
-            hourly_rate = Decimal(str(agreement_rates.get(emp.agreement_type, 0)))
-            supplement = get_active_supplement_for_period(db, emp.id, d_from, d_to)
-            if supplement:
-                hourly_rate += supplement.value
-            hourly_rate = float(hourly_rate)
             emp_map[emp.id] = {
                 "employee_id":     emp.id,
                 "employee_name":   emp.name,
                 "employee_number": emp.employee_number,
-                "hourly_rate":     hourly_rate,
-                "absences":        defaultdict(lambda: {"minutes": 0, "day_set": set()}),
+                "base_rate":       Decimal(str(agreement_rates.get(emp.agreement_type, 0))),
+                "supplements":     get_supplements_for_period(db, emp.id, date.min, date.max),
+                "absences":        defaultdict(lambda: {"minutes": 0, "day_set": set(), "rate_kr": Decimal("0")}),
             }
         atype = act.activity_type
         all_types.add(atype)
         duration_min = int((act.end_time - act.start_time).total_seconds() // 60)
         emp_map[emp.id]["absences"][atype]["minutes"] += duration_min
+        # Timesatsen regnes dag for dag (grundsats + summen af dagens tillæg), med
+        # timerne fordelt ligeligt på aktivitetens dage – samme fordeling som eksporten.
+        _day_count = (act.end_time.date() - act.start_time.date()).days + 1
+        _d = act.start_time.date()
+        while _d <= act.end_time.date():
+            _rate = emp_map[emp.id]["base_rate"] + supplement_sum_on(emp_map[emp.id]["supplements"], _d)
+            emp_map[emp.id]["absences"][atype]["rate_kr"] += Decimal(duration_min) / 60 / _day_count * _rate
+            _d += timedelta(days=1)
 
         cur_day = act.start_time.date()
         end_day = act.end_time.date()
@@ -142,7 +146,9 @@ def _compute_data(d_from: date, d_to: date, db: Session) -> dict:
             if atype in _FIXED_RATE_ABSENCE:
                 rate = _FIXED_RATE_ABSENCE[atype]
             elif atype in _PAID_ABSENCE_TYPES:
-                rate = emp_info["hourly_rate"]
+                # Vægtet gennemsnit når satsen skifter i perioden (flere/nye tillæg).
+                rate = (float(data["rate_kr"] / (Decimal(data["minutes"]) / 60)) if data["minutes"]
+                        else float(emp_info["base_rate"]))
             else:
                 rate = 0.0
             absences[atype] = {
@@ -246,16 +252,14 @@ def export_per_employee(
         group = db.query(DispatcherGroup).filter(DispatcherGroup.id == dispatcher_group_id).first()
         group_name = group.name if group else None
 
-    hourly_rate_cache: dict = {}
+    supplements_cache: dict = {}
 
-    def _hourly_rate(emp) -> float:
-        if emp.id not in hourly_rate_cache:
-            rate = Decimal(str(agreement_rates.get(emp.agreement_type, 0)))
-            supplement = get_active_supplement_for_period(db, emp.id, d_from, d_to)
-            if supplement:
-                rate += supplement.value
-            hourly_rate_cache[emp.id] = float(rate)
-        return hourly_rate_cache[emp.id]
+    def _hourly_rate(emp, d: date) -> float:
+        """Grundsats + summen af medarbejdertillæg gyldige på dagen d."""
+        if emp.id not in supplements_cache:
+            supplements_cache[emp.id] = get_supplements_for_period(db, emp.id, date.min, date.max)
+        rate = Decimal(str(agreement_rates.get(emp.agreement_type, 0)))
+        return float(rate + supplement_sum_on(supplements_cache[emp.id], d))
 
     # Byg én række per kalenderdag med fravær (splitter aktiviteter der spænder over flere dage)
     rows = []
@@ -263,13 +267,6 @@ def export_per_employee(
         emp = act.employee
         atype = act.activity_type
         label = type_labels.get(atype, atype.replace("_", " ").capitalize())
-        if atype in _FIXED_RATE_ABSENCE:
-            rate = _FIXED_RATE_ABSENCE[atype]
-        elif atype in _PAID_ABSENCE_TYPES:
-            rate = _hourly_rate(emp)
-        else:
-            rate = 0.0
-
         total_minutes = int((act.end_time - act.start_time).total_seconds() // 60)
         start_day = act.start_time.date()
         end_day = act.end_time.date()
@@ -278,6 +275,12 @@ def export_per_employee(
 
         cur_day = start_day
         while cur_day <= end_day:
+            if atype in _FIXED_RATE_ABSENCE:
+                rate = _FIXED_RATE_ABSENCE[atype]
+            elif atype in _PAID_ABSENCE_TYPES:
+                rate = _hourly_rate(emp, cur_day)
+            else:
+                rate = 0.0
             rows.append({
                 "employee_name":   emp.name,
                 "employee_number": emp.employee_number,

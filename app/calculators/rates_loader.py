@@ -208,12 +208,12 @@ def seniority_variant_exists_from_db(db, agreement_type: str) -> str | None:
     return candidate if candidate in types else None
 
 
-def get_active_supplement_for_period(
+def get_supplements_for_period(
     db, employee_id: int, period_start: date, period_end: date
-) -> Optional["EmployeeSupplement"]:
-    """Finder tillægget hvis gyldighedsperiode overlapper [period_start, period_end].
-    Overlapper flere rækker (nyt tillæg oprettet midt i perioden), vinder den
-    med nyeste start_date, for hele perioden."""
+) -> list["EmployeeSupplement"]:
+    """Alle medarbejdertillæg hvis gyldighedsperiode overlapper [period_start, period_end].
+    En medarbejder kan have flere aktive tillæg samtidig – de summeres dag for dag
+    (se supplement_sum_on). Afsluttede tillæg tæller med for de dage, de var gyldige."""
     from database.models import EmployeeSupplement
     return (
         db.query(EmployeeSupplement)
@@ -222,6 +222,11 @@ def get_active_supplement_for_period(
             EmployeeSupplement.end_date >= period_start,
             EmployeeSupplement.start_date <= period_end,
         )
-        .order_by(EmployeeSupplement.start_date.desc())
-        .first()
+        .order_by(EmployeeSupplement.start_date)
+        .all()
     )
+
+
+def supplement_sum_on(rows, d: date) -> Decimal:
+    """Summen af kr/time for de tillæg i rows der er gyldige på dagen d."""
+    return sum((r.value for r in rows if r.start_date <= d <= r.end_date), Decimal("0"))

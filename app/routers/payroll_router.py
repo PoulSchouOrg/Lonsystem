@@ -52,12 +52,20 @@ from calculators.rates_loader import (
     load_springer_rate_from_db,
     load_overtime_rates_by_id_from_db,
     load_supplement_rates_by_id_from_db,
-    get_active_supplement_for_period,
+    get_supplements_for_period,
+    supplement_sum_on,
 )
 from database.models import Activity, ActivityStatus, AgreementKind, Employee, EmployeeSpringerFlag, Holiday, MasterCvrNumber, PayPeriod, PayPeriodStatus, Vehicle
 from database.session import get_db
 
 router = APIRouter(prefix="/api/payroll", tags=["payroll"])
+
+# Timelønnede løntyper der får (grundsats + medarbejdertillæg) som sats – se
+# calc["hourly_rates"] i _calculate_employee().
+_HOURLY_RATE_KEYS = (
+    "normal", "sh_fuldloennet", "sh_timeloennet", "afspadsering", "ferie",
+    "sygdom", "feriefri", "barsel", "skole_kursus",
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -318,13 +326,26 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
     )
 
     try:
-        hourly_rate = load_agreement_types_from_db(db).get(emp.agreement_type, Decimal("0"))
+        base_hourly_rate = load_agreement_types_from_db(db).get(emp.agreement_type, Decimal("0"))
     except Exception as e:
         _logging.error(f"Timeløn kunne ikke indlæses for {emp.first_name} {emp.last_name} (id={emp.id}): {e}")
         raise HTTPException(500, f"Timeløn kunne ikke indlæses for {emp.first_name} {emp.last_name} – kontakt administrator")
-    supplement = get_active_supplement_for_period(db, emp.id, start, end)
-    if supplement:
-        hourly_rate += supplement.value
+    # Medarbejdertillæg regnes dag for dag: timesatsen en given dag er grundsatsen
+    # plus summen af alle tillæg gyldige den dag (flere kan være aktive samtidig,
+    # bekræftet 2026-10-05). En vagt bruger satsen for den dag, den hører til.
+    supplement_rows = get_supplements_for_period(db, emp.id, start, end)
+
+    def _rate_on(d: date) -> Decimal:
+        return base_hourly_rate + supplement_sum_on(supplement_rows, d)
+
+    # Kr og timer pr. timelønnet løntype – giver den vægtede gennemsnitssats, der
+    # bruges som "Sats" i Danløn-CSV, Lønkørsel, prøvekørsel og PDF-timeseddel.
+    rate_kr = defaultdict(Decimal)
+    rate_hours = defaultdict(Decimal)
+
+    def _track(key: str, hours: Decimal, rate: Decimal) -> None:
+        rate_kr[key] += hours * rate
+        rate_hours[key] += hours
     ot_rates = load_overtime_rates_from_db(db)
     salt_rate = load_salt_supplement_rate_from_db(db)
     overnight_rate = load_overnight_rate_from_db(db)
@@ -459,6 +480,7 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
     # Gennemløb alle dage i perioden
     cur = start
     while cur <= end:
+        hourly_rate = _rate_on(cur)
         acts_today = [a for a in acts_by_date.get(cur, []) if a.activity_type not in ("overnatning", "dob_overnatning")]
         overnight_today = 1 if cur in overnight_dates else 0
         dob_overnight_today = 1 if cur in dob_overnight_dates else 0
@@ -478,8 +500,10 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
         if sh_h > 0:
             if emp.fuldloennet:
                 totals["sh_fuldloennet"] += sh_h
+                _track("sh_fuldloennet", sh_h, hourly_rate)
             else:
                 totals["sh_timeloennet"] += sh_h
+                _track("sh_timeloennet", sh_h, hourly_rate)
             total_kr += sh_h * hourly_rate
 
         # Normaltids-/OT13-loft deles på tværs af dagens aktiviteter (ikke nulstillet
@@ -528,16 +552,19 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
                     if act.activity_type == "afspadsering":
                         dur = _afspadsering_hours(emp, act)
                         totals["afspadsering"] += dur
+                        _track("afspadsering", dur, hourly_rate)
                         absence_hours = dur
                         absence_kr = dur * hourly_rate
                     elif act.activity_type == "ferie":
                         dur = Decimal(str((act.end_time - act.start_time).total_seconds())) / 3600
                         totals["ferie"] += dur
+                        _track("ferie", dur, hourly_rate)
                         absence_hours = dur
                         absence_kr = dur * hourly_rate
                     elif act.activity_type in ("sygdom", "barn_1sygedag", "graviditetsbetinget_sygdom"):
                         dur = Decimal(str((act.end_time - act.start_time).total_seconds())) / 3600
                         totals["sygdom"] += dur
+                        _track("sygdom", dur, hourly_rate)
                         absence_hours = dur
                         absence_kr = dur * hourly_rate
                     elif act.activity_type == "paragraf_56_syg":
@@ -548,6 +575,7 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
                     elif act.activity_type == "feriefri":
                         dur = Decimal(str((act.end_time - act.start_time).total_seconds())) / 3600
                         totals["feriefri"] += dur
+                        _track("feriefri", dur, hourly_rate)
                         absence_hours = dur
                         # Fuldlønnet/timelønnet afgør kun hvilken Danløn-kode feriefri
                         # rapporteres under (FERIEFRI_FULDLOENNET/-TIMELOENNET, se
@@ -558,6 +586,7 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
                     elif act.activity_type == "barsel":
                         dur = Decimal(str((act.end_time - act.start_time).total_seconds())) / 3600
                         totals["barsel"] += dur
+                        _track("barsel", dur, hourly_rate)
                         absence_hours = dur
                         absence_kr = dur * hourly_rate
                     elif act.activity_type == "barn_1sygedag_u_8uger":
@@ -568,6 +597,7 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
                     elif act.activity_type == "skole_kursus":
                         dur = Decimal(str((act.end_time - act.start_time).total_seconds())) / 3600
                         totals["skole_kursus"] += dur
+                        _track("skole_kursus", dur, hourly_rate)
                         absence_hours = dur
                         absence_kr = dur * hourly_rate
                         # Skole/kursus-timer forbruger dagens garanterede timer ligesom
@@ -690,6 +720,7 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
                         + day_salt_kr
                     )
                     totals["normal"]     += ot.normal_hours
+                    _track("normal", ot.normal_hours, hourly_rate)
                     totals["ot_before"]  += ot.ot_before_hours
                     totals["ot_13"]      += ot.ot_13_hours
                     totals["ot_extra"]   += ot.ot_extra_hours
@@ -804,13 +835,26 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
     # normal_hours indeholder nu alle arbejdede timer (tillæg er additive)
     total_hours = totals["normal"]
 
+    # Vægtet gennemsnitssats pr. løntype (bekræftet 2026-10-05: ved satsskift midt i
+    # perioden sendes én linje pr. kode med gennemsnitssats – kan give øredifferencer).
+    # Uden timer i en løntype: gennemsnit over alle timelønnede timer, ellers
+    # periodens første dags sats.
+    _all_h = sum(rate_hours.values(), Decimal("0"))
+    _fallback_rate = (sum(rate_kr.values(), Decimal("0")) / _all_h) if _all_h else _rate_on(start)
+
+    def _avg_rate(key: str) -> Decimal:
+        return rate_kr[key] / rate_hours[key] if rate_hours[key] else _fallback_rate
+
     return {
         "employee_id":        emp.id,
         "employee_number":    emp.employee_number,
         "employee_name":      emp.name,
         "email":              emp.email,
         "agreement_type":     emp.agreement_type,
-        "hourly_rate":        float(hourly_rate),
+        "hourly_rate":        float(_avg_rate("normal")),
+        "hourly_rates":       {k: float(_avg_rate(k)) for k in _HOURLY_RATE_KEYS},
+        "base_hourly_rate":   float(base_hourly_rate),
+        "supplement_rate":    float(_avg_rate("normal") - base_hourly_rate),
         "salt_rate":          float(salt_rate),
         "ot_rates":           {k: float(v) for k, v in ot_rates.items()},
         "ot_rates_by_id":     {k: float(v) for k, v in ot_rates_by_id.items()},
@@ -968,28 +1012,28 @@ def _build_proevekoersel_workbook(employees, period, db):
             cell.font = bold
         sh_fl = calc.get("sh_fuldloennet_hours", 0)
         sh_tl = calc.get("sh_timeloennet_hours", 0)
-        hr = calc["hourly_rate"]
+        hrs = calc["hourly_rates"]
         if sh_fl > 0:
             sh_row = [emp_name, calc["employee_number"], "", "Søgnehelligdag",
-                      "", "", sh_fl, "", sh_fl, "", "", "", "", "", "", round(sh_fl * hr, 2)]
+                      "", "", sh_fl, "", sh_fl, "", "", "", "", "", "", round(sh_fl * hrs["sh_fuldloennet"], 2)]
             ws.append(sh_row)
             for cell in ws[ws.max_row]:
                 cell.font = bold
         if sh_tl > 0:
             sh_row = [emp_name, calc["employee_number"], "", "SH-Udbetaling",
-                      "", "", sh_tl, "", sh_tl, "", "", "", "", "", "", round(sh_tl * hr, 2)]
+                      "", "", sh_tl, "", sh_tl, "", "", "", "", "", "", round(sh_tl * hrs["sh_timeloennet"], 2)]
             ws.append(sh_row)
             for cell in ws[ws.max_row]:
                 cell.font = bold
         on_kr = calc.get("overnight_kr", 0.0)
         dagpenge = calc.get("dagpenge_sats", 137.43)
         for abs_lbl, abs_h, abs_rate in [
-            ("Sygdom med løn",  calc.get("sygdom_hours", 0),              hr),
+            ("Sygdom med løn",  calc.get("sygdom_hours", 0),              hrs["sygdom"]),
             ("§56 syg",         calc.get("paragraf_56_syg_hours", 0),     dagpenge),
             ("Barn 1.sygedag",  calc.get("barn_1sygedag_u_loen_hours", 0), dagpenge),
-            ("Feriefri",        calc.get("feriefri_hours", 0),            hr),
-            ("Barsel",          calc.get("barsel_hours", 0),              hr),
-            ("Kursus/Skole",    calc.get("skole_kursus_hours", 0),        hr),
+            ("Feriefri",        calc.get("feriefri_hours", 0),            hrs["feriefri"]),
+            ("Barsel",          calc.get("barsel_hours", 0),              hrs["barsel"]),
+            ("Kursus/Skole",    calc.get("skole_kursus_hours", 0),        hrs["skole_kursus"]),
         ]:
             if abs_h > 0:
                 ws.append([emp_name, calc["employee_number"], "", abs_lbl,
@@ -1114,25 +1158,25 @@ def _build_danloen_csv(employees, period, db: Session) -> bytes:
             continue
 
         raw_rows = [
-            ("NORMAL",         calc["normal_hours"],                                               calc["hourly_rate"]),
+            ("NORMAL",         calc["normal_hours"],                                               calc["hourly_rates"]["normal"]),
             _springer_row(calc),
             ("OT_BEFORE",      calc["ot_before_hours"],                                            calc["ot_rates"][OT_BEFORE_KEY]),
             ("OT_13",          calc["ot_13_hours"] + calc.get("sh_kode8_hours", 0),               calc["ot_rates"][OT_13_KEY]),
             ("OT_EXTRA",       calc["ot_extra_hours"] + calc.get("sh_kode9_hours", 0),            calc["ot_rates"][OT_EXTRA_KEY]),
-            ("SH_FULDLOENNET", calc.get("sh_fuldloennet_hours", 0),                               calc["hourly_rate"]),
-            ("SH_TIMELOENNET", calc.get("sh_timeloennet_hours", 0),                               calc["hourly_rate"]),
+            ("SH_FULDLOENNET", calc.get("sh_fuldloennet_hours", 0),                               calc["hourly_rates"]["sh_fuldloennet"]),
+            ("SH_TIMELOENNET", calc.get("sh_timeloennet_hours", 0),                               calc["hourly_rates"]["sh_timeloennet"]),
             ("SALT",           calc.get("salt_hours", 0),                                         calc.get("salt_rate", 0)),
             ("OVERNATNING",    calc.get("overnight_count", 0),                                    calc.get("overnight_rate", 0)),
-            ("AFSPADSERING",   calc["afspadsering_hours"],                                        calc["hourly_rate"]),
-            ("SYGDOM",         calc["sygdom_hours"],                                              calc["hourly_rate"]),
+            ("AFSPADSERING",   calc["afspadsering_hours"],                                        calc["hourly_rates"]["afspadsering"]),
+            ("SYGDOM",         calc["sygdom_hours"],                                              calc["hourly_rates"]["sygdom"]),
             ("PARAGRAF_56",    calc["paragraf_56_syg_hours"],                                     calc.get("dagpenge_sats", 137.43)),
             ("BARN_1SYGEDAG",  calc["barn_1sygedag_u_loen_hours"],                                calc.get("dagpenge_sats", 137.43)),
             ("FERIEFRI",       _builtin_absence_qty(pt, "FERIEFRI", "feriefri", calc["feriefri_hours"],
-                                                      emp.id, period.start_date, period.end_date, db), calc["hourly_rate"]),
-            *([("FERIEFRI_FULDLOENNET",  calc["feriefri_hours"], calc["hourly_rate"])] if emp.fuldloennet else []),
-            *([("FERIEFRI_TIMELOENNET", calc["feriefri_hours"], calc["hourly_rate"])] if not emp.fuldloennet else []),
-            ("BARSEL",         calc["barsel_hours"],                                              calc["hourly_rate"]),
-            ("SKOLE_KURSUS",   calc["skole_kursus_hours"],                                        calc["hourly_rate"]),
+                                                      emp.id, period.start_date, period.end_date, db), calc["hourly_rates"]["feriefri"]),
+            *([("FERIEFRI_FULDLOENNET",  calc["feriefri_hours"], calc["hourly_rates"]["feriefri"])] if emp.fuldloennet else []),
+            *([("FERIEFRI_TIMELOENNET", calc["feriefri_hours"], calc["hourly_rates"]["feriefri"])] if not emp.fuldloennet else []),
+            ("BARSEL",         calc["barsel_hours"],                                              calc["hourly_rates"]["barsel"]),
+            ("SKOLE_KURSUS",   calc["skole_kursus_hours"],                                        calc["hourly_rates"]["skole_kursus"]),
         ] + _user_pay_type_rows(emp.id, period.start_date, period.end_date, calc, db)
         code_agg = {}
         for key, qty, rate in raw_rows:

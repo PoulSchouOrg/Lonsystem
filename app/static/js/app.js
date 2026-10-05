@@ -3886,8 +3886,10 @@ async function openEditEmployee(id) {
   await _loadEmpCvrDropdown(e.cvr_number || null);
   if (state.currentUser?.permissions?.includes("manage_employee_supplements")) {
     try {
-      const supplement = await GET(`/api/employee-supplements/active/${id}`);
-      document.getElementById("emp-active-supplement").value = supplement ? `${supplement.value.toFixed(2)} kr/t` : "";
+      // Flere aktive tillæg summeres (samme regel som lønberegningen)
+      const supplements = await GET(`/api/employee-supplements/active/${id}`);
+      const total = supplements.reduce((sum, s) => sum + s.value, 0);
+      document.getElementById("emp-active-supplement").value = supplements.length ? `${total.toFixed(2)} kr/t` : "";
     } catch (_) {
       document.getElementById("emp-active-supplement").value = "";
     }
@@ -4577,24 +4579,24 @@ function renderPayrollPreview(data) {
         <div>DKK</div>
       </div>
       <div class="payroll-rows">
-        ${payrollRow("Normal tid", emp.normal_hours, emp.hourly_rate)}
+        ${payrollRow("Normal tid", emp.normal_hours, emp.hourly_rates?.normal ?? emp.hourly_rate)}
         ${payrollRow("Springertillæg", emp.springer_enabled ? emp.normal_hours : 0, emp.springer_rate)}
         ${payrollRow("Overtid 1 time før", emp.ot_before_hours, emp.ot_rates?.["Overtid 1 time før"])}
         ${payrollRow("Overtid 1-3 timer efter", (emp.ot_13_hours || 0) + (emp.sh_kode8_hours || 0), emp.ot_rates?.["Overtid 1-3 timer efter"])}
         ${payrollRow("Øvrig overtid", (emp.ot_extra_hours || 0) + (emp.sh_kode9_hours || 0), emp.ot_rates?.["Øvrigt overtid"])}
-        ${payrollRow("Søgnehelligdag", emp.sh_fuldloennet_hours, emp.hourly_rate)}
-        ${payrollRow("SH-Udbetaling", emp.sh_timeloennet_hours, emp.hourly_rate)}
+        ${payrollRow("Søgnehelligdag", emp.sh_fuldloennet_hours, emp.hourly_rates?.sh_fuldloennet ?? emp.hourly_rate)}
+        ${payrollRow("SH-Udbetaling", emp.sh_timeloennet_hours, emp.hourly_rates?.sh_timeloennet ?? emp.hourly_rate)}
         ${payrollRowSalt("Salttillæg", emp.salt_hours, emp.salt_rate, emp.salt_kr)}
         ${payrollRowOvernight("Overnatning", emp.overnight_count, emp.overnight_rate, emp.overnight_kr)}
         ${payrollRowOvernight("DOB Overnatning", emp.dob_overnight_count, emp.dob_overnight_rate, emp.dob_overnight_kr)}
-        ${payrollRow("Ferie", emp.ferie_hours, emp.hourly_rate)}
-        ${payrollRow("Afspadsering", emp.afspadsering_hours, emp.hourly_rate)}
-        ${payrollRow("Sygdom med løn", emp.sygdom_hours, emp.hourly_rate)}
+        ${payrollRow("Ferie", emp.ferie_hours, emp.hourly_rates?.ferie ?? emp.hourly_rate)}
+        ${payrollRow("Afspadsering", emp.afspadsering_hours, emp.hourly_rates?.afspadsering ?? emp.hourly_rate)}
+        ${payrollRow("Sygdom med løn", emp.sygdom_hours, emp.hourly_rates?.sygdom ?? emp.hourly_rate)}
         ${payrollRow("§56 syg", emp.paragraf_56_syg_hours, emp.dagpenge_sats)}
         ${payrollRow("Barn 1.sygedag", emp.barn_1sygedag_u_loen_hours, emp.dagpenge_sats)}
-        ${payrollRow("Feriefri", emp.feriefri_hours, emp.hourly_rate)}
-        ${payrollRow("Barsel", emp.barsel_hours, emp.hourly_rate)}
-        ${payrollRow("Kursus/Skole", emp.skole_kursus_hours, emp.hourly_rate)}
+        ${payrollRow("Feriefri", emp.feriefri_hours, emp.hourly_rates?.feriefri ?? emp.hourly_rate)}
+        ${payrollRow("Barsel", emp.barsel_hours, emp.hourly_rates?.barsel ?? emp.hourly_rate)}
+        ${payrollRow("Kursus/Skole", emp.skole_kursus_hours, emp.hourly_rates?.skole_kursus ?? emp.hourly_rate)}
         <div class="payroll-row total">
           <div>I alt</div>
           <div>${fmtHours(emp.total_hours)}</div>
@@ -7017,7 +7019,7 @@ async function loadSupplementDetail() {
     }
     tbody.innerHTML = rows.map(r => `
       <tr style="border-bottom:1px solid var(--border);background:#fff">
-        <td style="padding:10px 14px;font-weight:600;color:${r.is_active ? "var(--approved)" : "var(--danger)"}">${r.is_active ? "Aktiv" : "Inaktiv"}</td>
+        <td style="padding:10px 14px;font-weight:600;color:${r.is_active ? "var(--approved)" : "var(--danger)"}">${r.is_active ? "Aktiv" : (r.deactivated ? "Afsluttet" : "Inaktiv")}</td>
         <td style="padding:10px 14px">${h(r.employee_number)}</td>
         <td style="padding:10px 14px">${h(r.name)}</td>
         <td style="padding:10px 14px">${h(r.type)}</td>
@@ -7030,7 +7032,7 @@ async function loadSupplementDetail() {
 }
 
 async function endSupplement(id) {
-  if (!confirm("Afslut dette tillæg? Det gælder stadig resten af den nuværende lønperiode og stopper først fra næste periode.")) return;
+  if (!confirm("Afslut dette tillæg? Dags dato bliver sidste dag, tillægget gælder. Det tæller stadig med for de dage, hvor det har været gyldigt.")) return;
   try {
     await POST(`/api/employee-supplements/${id}/end`, {});
     toast("Tillæg afsluttet", "success");

@@ -1040,36 +1040,40 @@ def build_teknisk():
             ["value",        "Numeric(10,2)",  "Tillæggets værdi i kr/time. Skal være > 0, afrundes til 2 decimaler før gemning"],
             ["start_date",   "Date",           "Gyldighedsperiodens start – default dags dato ved oprettelse"],
             ["end_date",     "Date",           "Gyldighedsperiodens slut – default 9999-12-31 (åbentstående)"],
+            ["deactivated_at", "DateTime",     "Sat ved 'Afslut' – kun til visning (status 'Afsluttet'), påvirker ikke beregningen"],
         ]
     )
     body(doc, (
-        "Status (Aktiv/Inaktiv) er IKKE et lagret felt – det beregnes ved hver visning ud fra om "
-        "dags dato ligger i intervallet [start_date, end_date]. Et tillæg med fremtidig startdato "
-        "vises derfor som Inaktiv, indtil startdatoen er nået."
+        "Status (Aktiv/Inaktiv/Afsluttet) er IKKE et lagret felt – Aktiv betyder at dags dato ligger i "
+        "intervallet [start_date, end_date]; ellers vises 'Afsluttet' hvis tillægget er afsluttet via "
+        "'Afslut', og ellers 'Inaktiv'. Et tillæg med fremtidig startdato vises derfor som Inaktiv, "
+        "indtil startdatoen er nået. En medarbejder kan have flere aktive tillæg samtidig."
     ))
 
     heading(doc, "Livscyklus og satsopslag", 2, "6.4.1")
     for step in [
-        "Oprettelse (POST /api/employee-supplements): den medarbejders eksisterende åbentstående række (end_date = 9999-12-31) får automatisk sin end_date sat til ny_start_dato − 1 dag, og en ny åbentstående række indsættes. Ny start_date skal være efter den forrige rækkes start_date, ellers afvises oprettelsen.",
-        "Afslutning (POST /api/employee-supplements/{id}/end): sætter IKKE end_date til dags dato, men til slutdatoen for den lønperiode dags dato falder i (get_or_create_period_for_date()). Tillægget gælder derfor stadig resten af den igangværende lønperiode og bortfalder først fra den efterfølgende periode.",
-        "Der findes ingen redigerings- eller sletningsmulighed for eksisterende rækker – kun oprettelse af nye og afslutning af den aktive.",
-        "Et partielt unikt indeks (uq_employee_supplements_one_open_row) sikrer på databaseniveau at en medarbejder kun kan have ÉN åbentstående række ad gangen (WHERE end_date = '9999-12-31') – forhindrer et race condition ved samtidige oprettelser.",
+        "Oprettelse (POST /api/employee-supplements): indsætter en ny åbentstående række (end_date = 9999-12-31). Eksisterende tillæg lukkes IKKE – flere tillæg kan være aktive samtidig og summeres (ændret 2026-10-05). Der er ingen krav til startdato i forhold til andre rækker.",
+        "Afslutning (POST /api/employee-supplements/{id}/end): sætter end_date = dags dato (sidste gyldige dag) og deactivated_at. Historikken bevares – tillægget tæller stadig med for de dage, det var gyldigt. Kun muligt på et tillæg der er aktivt i dag og uden slutdato.",
+        "Der findes ingen redigerings- eller sletningsmulighed for eksisterende rækker – kun oprettelse af nye og afslutning af aktive. En sats ændres ved at afslutte det gamle tillæg og oprette et nyt.",
+        "Det tidligere partielle unikke indeks (uq_employee_supplements_one_open_row) fjernes ved opstart (_migrate()), da flere åbentstående rækker nu er tilladt.",
     ]:
         bullet(doc, step)
     body(doc, (
-        "Ved lønberegning slår get_active_supplement_for_period(db, employee_id, periode_start, periode_slut) "
-        "(calculators/rates_loader.py) op efter den række hvis gyldighedsperiode OVERLAPPER den beregnede periode. "
-        "Overlapper flere rækker (fordi et nyt tillæg er oprettet midt i en periode), vinder rækken med nyeste "
-        "start_date – for hele perioden (ingen dag-for-dag splitning). OBS: startdatoen valideres "
-        "ikke mod låste perioder – et tilbagedateret tillæg vinder derfor også i en gammel, afsluttet "
-        "periode, hvis den genberegnes."
+        "Ved lønberegning henter get_supplements_for_period(db, employee_id, periode_start, periode_slut) "
+        "(calculators/rates_loader.py) alle rækker der OVERLAPPER perioden, og supplement_sum_on(rows, dag) "
+        "giver summen af de tillæg der er gyldige på en given dag. Satsen regnes DAG FOR DAG: dagens timesats "
+        "= grundsats + summen af dagens tillæg, og en vagt bruger satsen for den dag, den hører til. "
+        "OBS: startdatoen valideres ikke mod låste perioder – et tilbagedateret tillæg tæller derfor også "
+        "med i en gammel, afsluttet periode, hvis den genberegnes."
     ))
     note_box(doc,
-        "hourly_rate forhøjes med tillæggets value umiddelbart efter det almindelige overenskomstopslag i "
-        "_calculate_employee() (payroll_router.py) – ÉN variabel der allerede bruges alle steder nedstrøms "
-        "(normaltid/kode 1, SH-betaling, CSV-rækkerne for AFSPADSERING/SYGDOM/BARSEL/SKOLE_KURSUS m.fl.). "
-        "Samme funktion genbruges af absence_overview_router.py, så Fraværsoversigtens viste sats altid stemmer "
-        "overens med den sats der reelt udbetales i lønkørslen.",
+        "I _calculate_employee() (payroll_router.py) sættes hourly_rate = _rate_on(dag) i starten af hver dag "
+        "i dag-løkken, så dagens kr for normaltid, SH og fravær er præcise. Kr og timer opsamles pr. løntype "
+        "(_track()), og calc returnerer hourly_rates (vægtet gennemsnitssats pr. løntype), hourly_rate "
+        "(gennemsnit over normaltimer) og supplement_rate (gennemsnitligt tillæg). Danløn-CSV'en, "
+        "prøvekørslen, PDF-timesedlen og Lønkørsel-fanen bruger gennemsnitssatsen som 'Sats' – én linje pr. "
+        "løntypekode (bekræftet 2026-10-05; kan give øredifferencer ved satsskift midt i en periode). "
+        "absence_overview_router.py regner også dag for dag.",
         "TEKNISK NOTE"
     )
 
@@ -1078,14 +1082,14 @@ def build_teknisk():
         ["Endepunkt", "Metode", "Beskrivelse"],
         [
             ["/api/employee-supplements",              "GET",  "Liste, filtreret på employee_id/from/to (gyldighedsperiode-overlap)."],
-            ["/api/employee-supplements/active/{id}",   "GET",  "Det aktuelt aktive tillæg for én medarbejder, eller null."],
+            ["/api/employee-supplements/active/{id}",   "GET",  "Liste over medarbejderens tillæg der er aktive i dag (tom liste hvis ingen)."],
             ["/api/employee-supplements",               "POST", "Opret nyt tillæg (se livscyklus ovenfor)."],
-            ["/api/employee-supplements/{id}/end",      "POST", "Afslut det aktuelt aktive tillæg fra og med den efterfølgende lønperiode."],
+            ["/api/employee-supplements/{id}/end",      "POST", "Afslut et aktivt tillæg – dags dato bliver sidste gyldige dag."],
         ]
     )
     body(doc, (
         "Alle fire endepunkter kræver rettigheden manage_employee_supplements. Medarbejder-modalen "
-        "(fanen 'Medarbejdere') viser tillæggets aktuelle værdi i et read-only felt under Overenskomsttype "
+        "(fanen 'Medarbejdere') viser summen af de aktive tillæg i et read-only felt under Overenskomsttype "
         "(hentet via GET /active/{id}) – feltet kan ikke redigeres eller udfyldes derfra, kun under fanen 'Tillæg'."
     ))
 
@@ -3188,7 +3192,7 @@ def build_bruger():
     for i, step in enumerate([
         "Søg medarbejderen frem i søgefeltet (navn eller lønnummer).",
         "Klik på medarbejderen. En boks åbner sig med medarbejderens fulde tillægshistorik: status "
-        "(Aktiv/Inaktiv), lønnummer, tillægsnavn, type, gyldighedsperiode og værdi i kr. Brug 'Fra'/'Til'-"
+        "(Aktiv/Inaktiv/Afsluttet), lønnummer, tillægsnavn, type, gyldighedsperiode og værdi i kr. Brug 'Fra'/'Til'-"
         "felterne til at indsnævre visningen til en bestemt periode – lader du dem stå tomme, vises hele "
         "historikken.",
         "Klik '+ Tilføj' (enten i boksen eller i toolbaren øverst på siden) for at oprette et nyt tillæg: "
@@ -3197,16 +3201,17 @@ def build_bruger():
     ], 1):
         bullet(doc, step, f"Trin {i}: ")
     note_box(doc,
-        "Når et nyt tillæg oprettes, bliver medarbejderens tidligere tillæg automatisk gjort inaktivt "
-        "fra og med dagen før den nye startdato. Der findes ikke en 'rediger'-funktion – en fejl rettes "
-        "ved at oprette et nyt tillæg med den korrekte værdi.",
+        "En medarbejder kan have flere aktive tillæg på samme tid – de lægges sammen i lønberegningen. "
+        "Når et nyt tillæg oprettes, fortsætter de eksisterende derfor uændret. Skal en sats ændres, "
+        "afslut det gamle tillæg og opret et nyt. Der findes ikke en 'rediger'-funktion.",
         "GODT AT VIDE"
     )
     body(doc, (
         "Har en medarbejder et aktivt tillæg der ikke længere skal gælde, klik 'Afslut' på den aktive "
-        "række. Tillægget fortsætter med at gælde resten af den igangværende lønperiode og bortfalder "
-        "først fra den efterfølgende periode – det stopper altså ikke med øjeblikkelig virkning midt i "
-        "en periode."
+        "række. Dags dato bliver tillæggets sidste gyldige dag, og det vises derefter som 'Afsluttet'. "
+        "Tillægget tæller stadig med for de dage, hvor det har været gyldigt – også hvis en tidligere "
+        "periode køres igen. Starter eller slutter et tillæg midt i en lønperiode, gives det kun for "
+        "timerne på de dage, hvor det var gyldigt; satsen på lønsedlen/Danløn er så et vægtet gennemsnit."
     ))
     note_box(doc,
         "Tillægget lægges automatisk til medarbejderens grundsats i selve lønberegningen – både i "

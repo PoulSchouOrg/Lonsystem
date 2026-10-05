@@ -193,6 +193,7 @@ def _build_pdf(calc: dict, cvr_number: str = CVR_NUMBER) -> bytes:
     ot_13_rate     = float(ot_rates.get(OT_13_KEY, 0))
     ot_extra_rate  = float(ot_rates.get(OT_EXTRA_KEY, 0))
     hr             = float(calc.get('hourly_rate', 0))
+    hrs            = calc.get('hourly_rates', {})
 
     sum_rows = [[_p('Type', s_th), _p('Antal', s_th_r), _p('Sats', s_th_r), _p('DKK', s_th_r)]]
 
@@ -238,19 +239,19 @@ def _build_pdf(calc: dict, cvr_number: str = CVR_NUMBER) -> bytes:
                 _kr(calc.get('salt_kr', 0)))
     dagpenge = float(calc.get('dagpenge_sats', 137.43))
     if calc.get('afspadsering_hours', 0) > 0.001:
-        add_absence_row('Afspadsering', float(calc['afspadsering_hours']), hr)
+        add_absence_row('Afspadsering', float(calc['afspadsering_hours']), hrs.get('afspadsering', hr))
     if calc.get('sygdom_hours', 0) > 0.001:
-        add_absence_row('Sygdom', float(calc['sygdom_hours']), hr)
+        add_absence_row('Sygdom', float(calc['sygdom_hours']), hrs.get('sygdom', hr))
     if calc.get('feriefri_hours', 0) > 0.001:
-        add_absence_row('Feriefri', float(calc['feriefri_hours']), hr)
+        add_absence_row('Feriefri', float(calc['feriefri_hours']), hrs.get('feriefri', hr))
     if calc.get('barsel_hours', 0) > 0.001:
-        add_absence_row('Barsel', float(calc['barsel_hours']), hr)
+        add_absence_row('Barsel', float(calc['barsel_hours']), hrs.get('barsel', hr))
     if calc.get('paragraf_56_syg_hours', 0) > 0.001:
         add_absence_row('§56 syg', float(calc['paragraf_56_syg_hours']), dagpenge)
     if calc.get('barn_1sygedag_u_loen_hours', 0) > 0.001:
         add_absence_row('Barn 1.sygedag u. løn', float(calc['barn_1sygedag_u_loen_hours']), dagpenge)
     if calc.get('skole_kursus_hours', 0) > 0.001:
-        add_absence_row('Kursus/Skole', float(calc['skole_kursus_hours']), hr)
+        add_absence_row('Kursus/Skole', float(calc['skole_kursus_hours']), hrs.get('skole_kursus', hr))
     if calc.get('overnight_count', 0) > 0:
         count = int(calc['overnight_count'])
         rate  = float(calc.get('overnight_rate', 0))
