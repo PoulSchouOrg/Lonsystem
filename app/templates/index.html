@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PS Løn – Poul Schou A/S</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20">
+  <link rel="stylesheet" href="/static/css/style.css?v=23">
   <script src="/static/js/msal-browser.min.js"></script>
   <script>
     const ENTRA_TENANT_ID = "{{ entra_tenant_id }}";
@@ -70,7 +70,10 @@
     PS Løn
   </h1>
   <div class="header-right">
-    <span style="font-size:13px;opacity:.8">Poul Schou A/S · CVR 13246505</span>
+    <button id="btn-alerts-bell" class="alerts-bell" onclick="openAlertsOverview()" title="Advarsler" style="display:none">
+      &#128276;<span id="alerts-bell-count" class="alerts-bell-count" style="display:none">0</span>
+    </button>
+    <span style="font-size:13px;opacity:.8;margin-left:28px">Poul Schou A/S · CVR 13246505</span>
     <span id="header-user" style="font-size:13px;opacity:.9;margin-left:16px;display:none"></span>
     <button id="btn-logout" onclick="doLogout()"
             style="display:none;margin-left:10px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:5px;padding:4px 10px;font-size:12px;cursor:pointer">
@@ -2336,5 +2339,6 @@
 <script src="/static/js/app.js?v={{ app_js_mtime }}"></script>
 <script src="/static/js/elev.js?v={{ app_js_mtime }}"></script>
 <script src="/static/js/agreement_rates.js?v={{ app_js_mtime }}"></script>
+<script src="/static/js/alerts_overview.js?v={{ app_js_mtime }}"></script>
 </body>
 </html>

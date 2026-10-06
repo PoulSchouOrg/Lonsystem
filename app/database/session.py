@@ -298,6 +298,14 @@ def _migrate():
             "ON employee_supplements(employee_id)"
         )
         conn.commit()
+        dec_cols = {row[1] for row in conn.execute("PRAGMA table_info(elev_step_decisions)")}
+        if dec_cols and "kind" not in dec_cols:
+            conn.execute("ALTER TABLE elev_step_decisions ADD COLUMN kind VARCHAR(20) NOT NULL DEFAULT 'elev'")
+            conn.commit()
+        uas_cols = {row[1] for row in conn.execute("PRAGMA table_info(user_alert_settings)")}
+        if uas_cols and "auto_open" not in uas_cols:
+            conn.execute("ALTER TABLE user_alert_settings ADD COLUMN auto_open BOOLEAN NOT NULL DEFAULT 1")
+            conn.commit()
         rate_cols = {row[1] for row in conn.execute("PRAGMA table_info(master_agreement_type_rates)")}
         if rate_cols and "note" not in rate_cols:
             conn.execute("ALTER TABLE master_agreement_type_rates ADD COLUMN note TEXT")

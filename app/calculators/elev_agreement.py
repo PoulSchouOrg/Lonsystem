@@ -115,7 +115,7 @@ def upcoming_changes(db: Session, emp: Employee, today: date) -> list:
         if when in decided or effective <= today:
             continue
         out.append({
-            "employee_id": emp.id, "employee_name": emp.name, "employee_number": emp.employee_number,
+            "kind": "elev", "employee_id": emp.id, "employee_name": emp.name, "employee_number": emp.employee_number,
             "event_date": when, "effective_from": effective,
             "effective_to": effective + timedelta(days=PERIOD_DAYS - 1),
             "from_type": emp.agreement_type, "to_type": STEP_AGREEMENT_TYPES[to_step],
@@ -178,15 +178,14 @@ def dk_kr(amount) -> str:
 
 
 def locked_backpay(db: Session, emp: Employee, from_period: date, until_period: date, expected_type: str) -> list:
-    """Låste perioder fra trinnets start og frem til (ikke med) den første åbne periode,
-    hvor eleven er regnet med en forkert type."""
-    out = []
-    p = from_period
-    while p < until_period:
-        if is_closed(db, p) and agreement_type_for_period(db, emp, p) != expected_type:
-            out.append(backpay(db, emp, p, expected_type))
-        p += timedelta(days=PERIOD_DAYS)
-    return out
+    """Låste perioder fra skiftets start og frem til (ikke med) den første åbne periode,
+    hvor medarbejderen er regnet med en forkert type. Kun perioder der findes i databasen."""
+    closed = (db.query(PayPeriod)
+              .filter(PayPeriod.status == PayPeriodStatus.closed, PayPeriod.start_date >= from_period,
+                      PayPeriod.start_date < until_period)
+              .order_by(PayPeriod.start_date).all())
+    return [backpay(db, emp, p.start_date, expected_type) for p in closed
+            if agreement_type_for_period(db, emp, p.start_date) != expected_type]
 
 
 def cancel_open_decisions(db: Session, emp: Employee, changed: str, log=None) -> int:
@@ -242,7 +241,7 @@ def mismatches(db: Session, today: date, period_starts: Optional[list] = None) -
             effective = period_start_for_date(event) if event else p_start
             suggested = first_open_period(db, effective)
             out.append({
-                "employee_id": emp.id, "employee_name": emp.name, "employee_number": emp.employee_number,
+                "kind": "elev", "employee_id": emp.id, "employee_name": emp.name, "employee_number": emp.employee_number,
                 "period_start": p_start, "period_end": p_end, "event_date": event,
                 "elev_end_date": emp.elev_end_date, "effective_from": effective,
                 "suggested_from": suggested,

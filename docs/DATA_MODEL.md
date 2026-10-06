@@ -78,6 +78,14 @@ Lønbogholderens beslutning om et elevløn-trinskift.
 | note, decided_by, decided_at | | Bemærkning, initialer, tidspunkt |
 | applied_at | DATETIME NULL | Sat når medarbejderens `agreement_type` er skiftet |
 
+`elev_step_decisions.kind` = `elev` eller `anciennitet` (samme forløb for begge lønstigninger).
+
+### user_alert_settings (2026-10-06)
+Personlige indstillinger for advarsler: `raise_notice_days` (30), `raise_remind_days` (7, NULL = aldrig),
+`other_first_days` (30, højst 30), `other_second_days` (7, NULL = ingen), `other_on_day` (sand), `auto_open` (sand: åbn Advarsler selv ved start, når der er nyt). Uden række bruges
+standardværdierne. Oversigten gemmer `seen:<nøgle>` (vist) og `ok:<nøgle>@<påmindelse>` (OK på en øvrig advarsel)
+i `user_alert_dismissals`.
+
 ### elev_step_claims (2026-10-06)
 Lås mens en lønbogholder behandler et trinskift ("Behandles af LB siden kl. 10.42"). Unik på (employee_id, event_date), så to samtidige godkendelser ikke kan lade sig gøre. Udløber efter 15 minutter.
 

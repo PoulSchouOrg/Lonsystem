@@ -146,7 +146,7 @@ async function openElevDecision(s, onDone) {
     return;
   }
   if (!_elevState.types.length) await _elevLoadTypes();
-  const m = _elevModal("modal-elev-decision", "Elevløn: godkend ændring", 560);
+  const m = _elevModal("modal-elev-decision", "Lønstigning: godkend ændring", 560);
   const periods = [0, 14, 28, 42].map(d => _elevAddDays(s.effective_from, d));
   m.body.innerHTML = `
     <p style="font-size:14px;margin-bottom:12px">${h(s.reason || "")}</p>
@@ -173,7 +173,7 @@ async function openElevDecision(s, onDone) {
     <button class="btn btn-primary" id="elev-dec-approve">Godkend</button>`;
   const send = async (decision) => {
     const body = {
-      employee_id: s.employee_id, event_date: s.event_date, decision,
+      kind: s.kind || "elev", employee_id: s.employee_id, event_date: s.event_date, decision,
       to_type: decision === "approve" ? document.getElementById("elev-dec-type").value : s.to_type,
       effective_from: document.getElementById("elev-dec-period").value,
       note: document.getElementById("elev-dec-note").value,

@@ -615,7 +615,8 @@ def update_employee(employee_id: int, body: EmployeeUpdate,
         # felt er angivet samtidig – nulstil det gemte felt til "ikke relevant".
         body.agreement_type = ""
     old_agreement_type = emp.agreement_type
-    _elev_fields = ("elev", "elev_start_date", "elev_end_date", "voksenelev", "agreement_type")
+    _elev_fields = ("elev", "elev_start_date", "elev_end_date", "voksenelev", "agreement_type",
+                    "hire_date", "seniority_date")
     old_elev = {f: getattr(emp, f) for f in _elev_fields}
     _paragraf56_excludes = {"dispatcher_group_id", "fast_bil_vehicle_id", "absence_vehicle_id",
                             "paragraf_56", "paragraf_56_start_date", "paragraf_56_end_date",

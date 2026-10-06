@@ -6907,11 +6907,8 @@ async function loadApp() {
 
   await loadAbsenceTypes();
   await setView(_firstPermittedView());
-  await checkAnciennitetsAlerts();
-  await checkParagraf56Alerts();
-  await checkMilestoneAlerts();
-  await checkElevAlerts();   // static/js/elev.js
-  await checkRateAlerts();   // static/js/agreement_rates.js
+  // Alle advarsler i én oversigt (static/js/alerts_overview.js) i stedet for en popup pr. type
+  await checkAllAlerts();
 }
 
 // Første menupunkt brugeren har adgang til – Aktiviteter hvis 'Se aktivitetskalender',

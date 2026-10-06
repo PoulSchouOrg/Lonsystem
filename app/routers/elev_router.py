@@ -1,5 +1,6 @@
 """
-Elevløn-trin (2026-10-06): advarsler, godkend / behold / annullér, lås. Reglerne: calculators/elev_steps.py og elev_agreement.py.
+Lønstigninger (2026-10-06): elevløn-trin og 9 måneders anciennitet – advarsler,
+godkend / behold / annullér, lås. Reglerne: calculators/elev_steps.py og elev_agreement.py.
 
 Popups vises kun for roller hvor 'elev_wage_approve' er sat EKSPLICIT – en systemrolle
 (admin) har adgang til siderne, men får ikke advarslerne.
@@ -12,15 +13,16 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, log_action, require_any_permission, require_permission
+from auth import get_current_user, log_action, require_any_permission, user_has_permission
 from calculators.elev_agreement import (
-    PERIOD_DAYS, active_claim, agreement_type_for_period, apply_due_changes, has_elev_steps,
-    locked_backpay, mismatches, upcoming_changes,
+    PERIOD_DAYS, _periods_to_check, active_claim, agreement_type_for_period, apply_due_changes,
+    has_elev_steps, locked_backpay, mismatches, upcoming_changes,
 )
+from calculators import anciennitet_steps
 from calculators.elev_steps import dk_period, step_changes
 from calculators.pay_period import period_start_for_date
 from database.models import (
-    AppUser, ElevStepClaim, ElevStepDecision, Employee, MasterAgreementType, Paragraf56AlertDismissal,
+    AppUser, ElevStepClaim, ElevStepDecision, Employee, UserAlertSettings, MasterAgreementType, Paragraf56AlertDismissal,
     PayPeriod, PayPeriodStatus, Role,
 )
 from database.session import get_db
@@ -28,6 +30,8 @@ from database.session import get_db
 router = APIRouter(prefix="/api/elev", tags=["elev"])
 
 PERM = "elev_wage_approve"
+ANC_PERM = "anciennitet_alert"
+_raise_access = require_any_permission(PERM, ANC_PERM)   # elevløn eller anciennitet
 _view_access = require_any_permission(PERM, "stamdata")
 
 
@@ -57,8 +61,14 @@ NOTICE_DAYS, REMIND_DAYS = 30, 7
 
 
 def notice_settings(db: Session, user: AppUser) -> tuple:
-    """(varsel, påmind igen) for brugeren."""
-    return NOTICE_DAYS, REMIND_DAYS
+    """(varsel, påmind igen) for brugeren – egne indstillinger, ellers standard."""
+    st = db.get(UserAlertSettings, user.id)
+    return (st.raise_notice_days, st.raise_remind_days) if st else (NOTICE_DAYS, REMIND_DAYS)
+
+
+def _may(db: Session, user: AppUser, kind: str) -> bool:
+    """Elevløn kræver rettigheden sat eksplicit på rollen; anciennitet som hidtil."""
+    return _explicit_permission(db, user, PERM) if kind == "elev" else user_has_permission(db, user, ANC_PERM)
 
 
 def _upcoming_visible(u: dict, notice: tuple, dismissed: dict, today: date) -> bool:
@@ -78,36 +88,41 @@ def _upcoming_visible(u: dict, notice: tuple, dismissed: dict, today: date) -> b
 
 
 @router.get("/alerts")
-def alerts(current_user: AppUser = Depends(require_permission(PERM)), db: Session = Depends(get_db),
+def alerts(current_user: AppUser = Depends(_raise_access), db: Session = Depends(get_db),
            today: Optional[date] = None):
     today = today or date.today()
     empty = {"upcoming": [], "applied": [], "mismatches": []}
-    if not _explicit_permission(db, current_user, PERM):
+    show = {k for k in ("elev", "anciennitet") if _may(db, current_user, k)}
+    if not show:
         return empty
     notice = notice_settings(db, current_user)
     apply_due_changes(db, today, _logger(db, current_user))
     dismissed = _dismissals(db, current_user)
-    upcoming = []
-    for emp in db.query(Employee).filter(Employee.active == True, Employee.elev == True).all():  # noqa: E712
-        for u in upcoming_changes(db, emp, today):
-            if _upcoming_visible(u, notice, dismissed, today):
-                upcoming.append(u)
+    candidates = []
+    if "elev" in show:
+        for emp in db.query(Employee).filter(Employee.active == True, Employee.elev == True).all():  # noqa: E712
+            candidates += upcoming_changes(db, emp, today)
+    if "anciennitet" in show:
+        candidates += anciennitet_steps.upcoming(db, today)
+    upcoming = [u for u in candidates if _upcoming_visible(u, notice, dismissed, today)]
     applied = []
     for d in (db.query(ElevStepDecision)
               .filter(ElevStepDecision.decision == "approve", ElevStepDecision.applied_at.isnot(None),
                       ElevStepDecision.effective_from <= today,
                       ElevStepDecision.effective_from > today - timedelta(days=3 * PERIOD_DAYS)).all()):
-        if (d.employee_id, f"elevfx_{d.id}") in dismissed:
+        if (d.employee_id, f"elevfx_{d.id}") in dismissed or d.kind not in show:
             continue
         emp = d.employee
         applied.append({
-            "decision_id": d.id, "employee_id": emp.id, "employee_name": emp.name,
+            "decision_id": d.id, "kind": d.kind, "employee_id": emp.id, "employee_name": emp.name,
             "employee_number": emp.employee_number, "to_type": d.to_type, "from_type": d.from_type,
             "effective_from": d.effective_from,
             "effective_to": d.effective_from + timedelta(days=PERIOD_DAYS - 1),
             "took_effect": emp.agreement_type == d.to_type,
         })
-    mm = mismatches(db, today)
+    mm = mismatches(db, today) if "elev" in show else []
+    if "anciennitet" in show:
+        mm += anciennitet_steps.mismatches(db, today, _periods_to_check(db, today))
     for item in upcoming + mm:
         _annotate_claim(db, item, current_user)
     return {"upcoming": sorted(upcoming, key=lambda u: u["effective_from"]), "applied": applied,
@@ -167,12 +182,12 @@ def claims_for_employee(employee_id: int, current_user: AppUser = Depends(get_cu
 
 
 @router.post("/claim", status_code=204)
-def claim(body: ClaimBody, current_user: AppUser = Depends(require_permission(PERM)), db: Session = Depends(get_db)):
+def claim(body: ClaimBody, current_user: AppUser = Depends(_raise_access), db: Session = Depends(get_db)):
     _take_claim(db, current_user, body.employee_id, body.event_date)
 
 
 @router.post("/claim/release", status_code=204)
-def release_claim(body: ClaimBody, current_user: AppUser = Depends(require_permission(PERM)),
+def release_claim(body: ClaimBody, current_user: AppUser = Depends(_raise_access),
                   db: Session = Depends(get_db)):
     _release_claim(db, current_user, body.employee_id, body.event_date)
 
@@ -184,7 +199,7 @@ class SnoozeBody(BaseModel):
 
 
 @router.post("/snooze", status_code=204)
-def snooze(body: SnoozeBody, current_user: AppUser = Depends(require_permission(PERM)),
+def snooze(body: SnoozeBody, current_user: AppUser = Depends(_raise_access),
            db: Session = Depends(get_db)):
     """'Påmind igen' (vises igen X dage før) eller 'Påmind mig ikke igen' – kun for denne bruger."""
     key = f"{'elevup' if body.mode == 'later' else 'elevno'}_{body.event_date.isoformat()}"
@@ -200,7 +215,7 @@ def snooze(body: SnoozeBody, current_user: AppUser = Depends(require_permission(
 
 
 @router.post("/applied/{decision_id}/ack", status_code=204)
-def ack_applied(decision_id: int, current_user: AppUser = Depends(require_permission(PERM)),
+def ack_applied(decision_id: int, current_user: AppUser = Depends(_raise_access),
                 db: Session = Depends(get_db)):
     d = db.query(ElevStepDecision).filter(ElevStepDecision.id == decision_id).first()
     if not d:
@@ -217,6 +232,7 @@ def ack_applied(decision_id: int, current_user: AppUser = Depends(require_permis
 # ── Godkend / behold / annullér ──────────────────────────────────────────────
 
 class DecisionBody(BaseModel):
+    kind: Literal["elev", "anciennitet"] = "elev"
     employee_id: int
     event_date: date
     decision: Literal["approve", "keep"]
@@ -226,7 +242,7 @@ class DecisionBody(BaseModel):
 
 
 @router.post("/decisions", status_code=201)
-def create_decision(body: DecisionBody, current_user: AppUser = Depends(require_permission(PERM)),
+def create_decision(body: DecisionBody, current_user: AppUser = Depends(_raise_access),
                     db: Session = Depends(get_db), today: Optional[date] = None):
     today = today or date.today()
     emp = db.query(Employee).filter(Employee.id == body.employee_id).first()
@@ -237,11 +253,16 @@ def create_decision(body: DecisionBody, current_user: AppUser = Depends(require_
         raise HTTPException(400, "Skriv en bemærkning om hvorfor satsen bevares")
     # Er lærekontrakten ændret (fx af en kollega i medarbejderformularen), mens dialogen
     # var åben, hører beslutningen til gamle datoer → afvis.
-    valid_events = {emp.elev_start_date} | {c[0] for c in step_changes(emp.elev_start_date, emp.elev_end_date)} \
-        if has_elev_steps(emp) else set()
+    if not _may(db, current_user, body.kind):
+        raise HTTPException(403, "Ingen adgang")
+    if body.kind == "elev":
+        valid_events = {emp.elev_start_date} | {c[0] for c in step_changes(emp.elev_start_date, emp.elev_end_date)} \
+            if has_elev_steps(emp) else set()
+    else:
+        valid_events = {anciennitet_steps.event_date(emp)}
     if body.event_date not in valid_events:
         _release_claim(db, current_user, emp.id, body.event_date)
-        raise HTTPException(409, "Elevens lærekontrakt er ændret, mens du behandlede den. Luk og åbn igen.")
+        raise HTTPException(409, "Medarbejderens datoer er ændret, mens du behandlede ændringen. Luk og åbn igen.")
     _take_claim(db, current_user, emp.id, body.event_date)
     existing = (db.query(ElevStepDecision)
                 .filter(ElevStepDecision.employee_id == emp.id, ElevStepDecision.event_date == body.event_date,
@@ -250,7 +271,7 @@ def create_decision(body: DecisionBody, current_user: AppUser = Depends(require_
         _release_claim(db, current_user, emp.id, body.event_date)
         raise HTTPException(409, f"Allerede behandlet af {existing.decided_by} – annullér den først for at ændre")
     if body.decision == "keep":
-        d = ElevStepDecision(employee_id=emp.id, event_date=body.event_date, decision="keep",
+        d = ElevStepDecision(employee_id=emp.id, kind=body.kind, event_date=body.event_date, decision="keep",
                              from_type=emp.agreement_type, to_type=body.to_type, note=note,
                              decided_by=current_user.initials)
         db.add(d)
@@ -271,7 +292,7 @@ def create_decision(body: DecisionBody, current_user: AppUser = Depends(require_
         raise HTTPException(400, "Lønperioden er låst (eksporteret) – vælg en senere periode")
     backpay = locked_backpay(db, emp, period_start_for_date(body.event_date), effective, body.to_type)
     from_type = agreement_type_for_period(db, emp, effective - timedelta(days=PERIOD_DAYS))
-    d = ElevStepDecision(employee_id=emp.id, event_date=body.event_date, decision="approve",
+    d = ElevStepDecision(employee_id=emp.id, kind=body.kind, event_date=body.event_date, decision="approve",
                          from_type=from_type, to_type=body.to_type, effective_from=effective,
                          note=note, decided_by=current_user.initials)
     db.add(d)
@@ -294,7 +315,7 @@ class CancelBody(BaseModel):
 
 @router.delete("/decisions/{decision_id}", status_code=204)
 def cancel_decision(decision_id: int, body: Optional[CancelBody] = None,
-                    current_user: AppUser = Depends(require_permission(PERM)), db: Session = Depends(get_db)):
+                    current_user: AppUser = Depends(_raise_access), db: Session = Depends(get_db)):
     """Annullér en godkendelse der endnu ikke er trådt i kraft, eller en 'behold'-beslutning
     (så advarslen kommer igen)."""
     d = db.query(ElevStepDecision).filter(ElevStepDecision.id == decision_id).first()
