@@ -6963,10 +6963,21 @@ async function init() {
   document.getElementById("vehicle-search")?.addEventListener("input", renderVehicleList);
   document.getElementById("supplement-employee-search")?.addEventListener("input", renderSupplementEmployeeList);
 
-  document.querySelectorAll(".modal-overlay").forEach(overlay => {
-    overlay.addEventListener("click", e => {
-      if (e.target === overlay) overlay.classList.remove("open");
-    });
+  // Klik på den mørke baggrund lukker vinduet – men kun hvis musen også blev TRYKKET ned på
+  // baggrunden. Ellers lukkede vinduet (og input gik tabt), når man markerede tekst i et felt
+  // og slap musen uden for vinduet (2026-10-06). Lyttes på dokumentet, så det også gælder
+  // vinduer der oprettes senere (fx Advarsler). Har vinduet en _onClose, bruges den i stedet.
+  let pressedOverlay = null;
+  document.addEventListener("mousedown", e => {
+    pressedOverlay = e.target.classList?.contains("modal-overlay") ? e.target : null;
+  });
+  document.addEventListener("click", e => {
+    const overlay = e.target;
+    if (overlay.classList?.contains("modal-overlay") && overlay === pressedOverlay) {
+      if (overlay._onClose) overlay._onClose();
+      else overlay.classList.remove("open");
+    }
+    pressedOverlay = null;
   });
 
   const loggedIn = await initAuth();
