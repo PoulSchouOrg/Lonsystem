@@ -386,6 +386,16 @@ async function openVagtplanTomorrowModal() {
   openModal("modal-vagtplan-tomorrow");
 }
 
+// Spejler backend (_has_vagtplan_edit_access): 'alle linjer', eller 'egen linje' når
+// medarbejderens initialer matcher den indloggede brugers. Tjekkes før opret-modalen
+// åbnes, så fejlen ikke først kommer ved "Opret".
+function _hasVagtplanEditAccess(emp) {
+  if (_hasPerm("vagtplan_edit_all")) return true;
+  if (!emp || !_hasPerm("vagtplan_edit_own")) return false;
+  const own = (state.currentUser?.initials || "").trim().toLowerCase();
+  return !!emp.initials && emp.initials.trim().toLowerCase() === own;
+}
+
 function renderVagtplanTable() {
   const days = _vagtplanDays();
   const empFilter = document.getElementById("vagtplan-filter-employee")?.value || "";
@@ -464,6 +474,11 @@ function renderVagtplanTable() {
   body.querySelectorAll("td[data-emp-id]").forEach(td => {
     td.addEventListener("click", e => {
       if (e.target.closest(".time-badge") || e.target.closest(".vagtplan-comment-text")) return;
+      const emp = state.employees.find(x => x.id === parseInt(td.dataset.empId));
+      if (!_hasVagtplanEditAccess(emp)) {
+        toast("Ingen redigeringsret til Vagtplan for denne medarbejder", "error");
+        return;
+      }
       openManualActivityModal(parseInt(td.dataset.empId), td.dataset.date, { vagtplan: true });
     });
   });
