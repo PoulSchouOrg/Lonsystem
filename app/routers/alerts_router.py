@@ -12,7 +12,7 @@ Grupper:
 Hver advarsel har en stabil `key`. Nøgler brugeren har fået vist, gemmes som "set", så
 vinduet kun åbner af sig selv ved start, når der er noget NYT.
 """
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from auth import get_current_user, user_has_permission
-from database.models import AppUser, Role, UserAlertDismissal, UserAlertSettings
+from database.models import AppUser, AuditLog, Employee, Role, UserAlertDismissal, UserAlertSettings
 from database.session import get_db
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
@@ -140,6 +140,65 @@ def mark_seen(body: KeysBody, current_user: AppUser = Depends(get_current_user),
 def mark_ok(body: KeysBody, current_user: AppUser = Depends(get_current_user), db: Session = Depends(get_db)):
     """'OK' på en øvrig advarsel: skjules til næste påmindelse (nøglen indeholder påmindelsen)."""
     _store(db, current_user, OK, body.keys)
+
+
+# ── Tidligere advarsler (sidste 90 dage) ─────────────────────────────────────
+
+HISTORY_DAYS = 90
+_RAISE_ACTIONS = {"elev_step_approve": "Godkendt", "elev_step_keep": "Beholdt",
+                  "elev_step_cancel": "Annulleret", "elev_step_applied": "Trådt i kraft"}
+_STAGE_TEXT = {"30": "første besked", "7": "anden besked", "0": "på dagen", "x": ""}
+
+
+def _utc(ts: Optional[datetime]) -> Optional[str]:
+    """Databasen gemmer tider i UTC (SQLite CURRENT_TIMESTAMP) – markeres så browseren viser dansk tid."""
+    return ts.isoformat() + "Z" if ts else None
+
+
+def _ok_text(db: Session, key: str) -> tuple:
+    """(medarbejder, tekst) for en 'OK'-nøgle som 'ms:12:birthday_40@7'."""
+    base, _, stage = key.partition("@")
+    parts = base.split(":")
+    stage_txt = f" ({_STAGE_TEXT.get(stage, stage)})" if _STAGE_TEXT.get(stage) else ""
+    if parts[0] == "rates":
+        return "", f"Nye satser fra {parts[1]}{stage_txt}"
+    emp = db.get(Employee, int(parts[1])) if len(parts) > 1 and parts[1].isdigit() else None
+    name = emp.name if emp else ""
+    if parts[0] == "ms":
+        kind, _, val = parts[2].partition("_")
+        what = {"birthday": f"fylder {val} år", "jubilee": f"{val} års jubilæum",
+                "elev": "afslutter elevtiden"}.get(kind, parts[2])
+    elif parts[0] == "p56u":
+        what = f"§56-aftalen udløber {parts[2]}"
+    elif parts[0] == "p56x":
+        what = "§56-aftalen er udløbet"
+    else:
+        what = base
+    return name, what + stage_txt
+
+
+@router.get("/history")
+def history(current_user: AppUser = Depends(get_current_user), db: Session = Depends(get_db),
+            now: Optional[datetime] = None):
+    """Behandlede advarsler de sidste 90 dage: lønstigninger (fælles for alle med rettigheden)
+    og brugerens egne 'OK' på øvrige advarsler. Kun læsning."""
+    since = (now or datetime.utcnow()) - timedelta(days=HISTORY_DAYS)
+    out = []
+    if _sections(db, current_user)["raises"]:
+        for a in (db.query(AuditLog).filter(AuditLog.action.in_(_RAISE_ACTIONS), AuditLog.timestamp >= since)
+                  .all()):
+            label = _RAISE_ACTIONS[a.action]
+            if a.action == "elev_step_cancel" and "automatisk" in (a.details or ""):
+                label = "Annulleret automatisk"
+            out.append({"at": _utc(a.timestamp), "who": "" if a.action == "elev_step_applied" else a.user_initials,
+                        "label": label, "employee_name": "", "text": a.details or ""})
+    for d in (db.query(UserAlertDismissal)
+              .filter(UserAlertDismissal.user_id == current_user.id, UserAlertDismissal.key.like(OK + "%"),
+                      UserAlertDismissal.dismissed_at >= since).all()):
+        name, text = _ok_text(db, d.key[len(OK):])
+        out.append({"at": _utc(d.dismissed_at), "who": "dig", "label": "OK", "employee_name": name, "text": text})
+    out.sort(key=lambda e: e["at"] or "", reverse=True)
+    return out
 
 
 # ── Personlige indstillinger ─────────────────────────────────────────────────

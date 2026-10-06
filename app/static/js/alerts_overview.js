@@ -4,7 +4,7 @@
 // Grupper: Mulig fejl i løn · Kommende ændringer i overenskomst (elevløn + anciennitet) · Øvrige.
 // "⚙ Indstillinger": hver bruger vælger selv, hvornår de får besked.
 
-const _ao = { data: null, actions: [] };
+const _ao = { data: null, actions: [], showHistory: false };
 
 function _aoKr(v) { return v == null ? "" : `${v.toFixed(2).replace(".", ",")} kr`; }
 
@@ -44,10 +44,11 @@ function _aoModal() {
       <div class="modal" style="width:780px;max-width:96vw">
         <div class="modal-header"><h2 id="ao-title">Advarsler</h2>
           <button class="modal-close" onclick="closeModal('modal-alerts-overview')">&#215;</button></div>
-        <div class="modal-body" id="ao-body"></div>
+        <div class="modal-body"><div id="ao-body"></div><div id="ao-history"></div></div>
         <div class="modal-footer">
           <span style="flex:1;font-size:12px;color:var(--text-light);align-self:center">
             Lukker du oversigten, kan du åbne den igen via &#128276; øverst til højre.</span>
+          <button class="btn btn-secondary" id="ao-history-btn" onclick="toggleAlertHistory()">Vis tidligere</button>
           <button class="btn btn-secondary" onclick="openAlertSettings()">&#9881; Indstillinger</button>
           <button class="btn btn-secondary" onclick="closeModal('modal-alerts-overview')">Luk</button>
         </div>
@@ -68,6 +69,7 @@ function _aoDecision(m) {
 
 async function openAlertsOverview() {
   if (!_ao.data) _ao.data = await GET("/api/alerts");
+  if (!document.getElementById("modal-alerts-overview")?.classList.contains("open")) _ao.showHistory = false;
   const g = _ao.data.groups;
   _aoModal();
   _ao.actions = [];
@@ -106,6 +108,7 @@ async function openAlertsOverview() {
   document.getElementById("ao-title").textContent = `Advarsler (${_ao.data.total})`;
   document.getElementById("ao-body").innerHTML = sections.join("") ||
     `<div class="ao-empty">Ingen advarsler &#10004;</div>`;
+  _renderAlertHistory();
   openModal("modal-alerts-overview");
   // Det brugeren nu har set, åbner ikke vinduet af sig selv igen ved næste start
   const keys = Object.values(g).flat().map(i => i.key);
@@ -207,4 +210,29 @@ async function openAlertSettings() {
     } catch (e) { toast(e.message, "error"); }
   };
   openModal("modal-alert-settings");
+}
+
+// ── Tidligere (sidste 90 dage) – skjult som standard, kun læsning ─────────────
+async function toggleAlertHistory() {
+  _ao.showHistory = !_ao.showHistory;
+  await _renderAlertHistory();
+}
+
+async function _renderAlertHistory() {
+  const el = document.getElementById("ao-history");
+  const btn = document.getElementById("ao-history-btn");
+  if (!el || !btn) return;
+  btn.textContent = _ao.showHistory ? "Skjul tidligere" : "Vis tidligere";
+  if (!_ao.showHistory) { el.innerHTML = ""; return; }
+  try {
+    const rows = await GET("/api/alerts/history");
+    const when = iso => new Date(iso).toLocaleString("da-DK", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    el.innerHTML = `<div class="ao-grp ao-history"><h3>&#128344; Tidligere – sidste 90 dage <span class="ao-n">${rows.length}</span></h3>
+      ${rows.length ? rows.map(r => `<div class="ao-row"><div class="ao-txt">
+        <div class="ao-what">${when(r.at)}${r.who ? " · " + h(r.who) : ""} · <strong>${h(r.label)}</strong>
+        ${r.employee_name ? " · " + h(r.employee_name) : ""}</div>
+        <div style="font-size:13px">${h(r.text)}</div></div></div>`).join("")
+      : `<div class="ao-empty">Intet behandlet de sidste 90 dage.</div>`}</div>`;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (e) { el.innerHTML = `<div class="ao-empty">${h(e.message)}</div>`; }
 }

@@ -824,6 +824,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 .ao-error .ao-row { border-left: 4px solid var(--danger); }
 .ao-raise .ao-row { border-left: 4px solid var(--primary); }
 .ao-other .ao-row { border-left: 4px solid var(--warning); }
+.ao-history .ao-row { border-left: 4px solid var(--border); background: var(--bg); }
 .ao-txt { flex: 1; min-width: 0; }
 .ao-who { font-weight: 600; }
 .ao-what { font-size: 13px; color: var(--text-light); }
