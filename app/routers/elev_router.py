@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from auth import log_action, require_any_permission, require_permission
+from auth import get_current_user, log_action, require_any_permission, require_permission
 from calculators.elev_agreement import (
     CLAIM_MINUTES, PERIOD_DAYS, active_claim, agreement_type_for_period, apply_due_changes,
     first_open_period, has_elev_steps, is_elev, locked_backpay, mismatch_reason, mismatches,
@@ -257,6 +257,18 @@ def _release_claim(db: Session, user: AppUser, employee_id: int, event_date: dat
                                    ElevStepClaim.event_date == event_date,
                                    ElevStepClaim.user_id == user.id).delete(synchronize_session=False)
     db.commit()
+
+
+@router.get("/claims/{employee_id}")
+def claims_for_employee(employee_id: int, current_user: AppUser = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    """Til medarbejderformularen: 'LB behandler elevløn for denne medarbejder'."""
+    out = []
+    for c in db.query(ElevStepClaim).filter(ElevStepClaim.employee_id == employee_id).all():
+        c = active_claim(db, c.employee_id, c.event_date)
+        if c and c.user_id != current_user.id:
+            out.append({"initials": c.initials, "claimed_at": c.claimed_at})
+    return out
 
 
 @router.post("/claim", status_code=204)

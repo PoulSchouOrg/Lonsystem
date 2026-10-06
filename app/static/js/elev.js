@@ -323,3 +323,20 @@ function renderElevWarnings(container, warnings) {
     Eksporten er ikke blokeret.</div>`;
   container.appendChild(el);
 }
+
+// ── Medarbejderformularen: "LB behandler elevløn for denne medarbejder" ──────
+async function showElevClaimNote(employeeId) {
+  const el = document.getElementById("emp-elev-claim-note");
+  if (!el) return;
+  el.style.display = "none";
+  if (!employeeId) return;
+  try {
+    const claims = await GET(`/api/elev/claims/${employeeId}`);
+    if (!claims.length) return;
+    const c = claims[0];
+    el.innerHTML = `<span class="icon">&#128274;</span><div class="text">
+      <strong>${h(c.initials)}</strong> behandler elevløn for denne medarbejder (siden kl.
+      ${c.claimed_at.slice(11, 16).replace(":", ".")}). Vent med at ændre lærekontraktens datoer.</div>`;
+    el.style.display = "";
+  } catch (e) { /* noten er kun information */ }
+}

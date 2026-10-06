@@ -331,6 +331,14 @@ def test_claim_blocks_other_users(db, elev, lon):
     assert _alerts(db, other, date(2026, 11, 1))["upcoming"][0]["claimed_by"] is None
 
 
+def test_employee_form_shows_who_is_handling(db, elev, lon):
+    from routers.elev_router import ClaimBody, claim, claims_for_employee
+    other = _user(db, "per", ["manage_employees"])
+    claim(ClaimBody(employee_id=elev.id, event_date=EVENT), current_user=lon, db=db)
+    assert [c["initials"] for c in claims_for_employee(elev.id, current_user=other, db=db)] == ["LON"]
+    assert claims_for_employee(elev.id, current_user=lon, db=db) == []      # ikke til en selv
+
+
 def test_claim_expires(db, elev, lon):
     from datetime import timedelta
     from database.models import ElevStepClaim

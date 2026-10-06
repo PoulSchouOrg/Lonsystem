@@ -3846,6 +3846,7 @@ async function openNewEmployeeModal() {
   buildScheduleTable(null);
   await _loadEmpCvrDropdown(null);
   document.getElementById("emp-active-supplement").value = "";
+  showElevClaimNote(null);
   openModal("modal-employee");
 }
 
@@ -3913,6 +3914,7 @@ async function openEditEmployee(id) {
       document.getElementById("emp-active-supplement").value = "";
     }
   }
+  showElevClaimNote(id);   // static/js/elev.js
   openModal("modal-employee");
 }
 
