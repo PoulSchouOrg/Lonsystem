@@ -80,10 +80,10 @@ def apply_due_changes(db: Session, today: date, log=None) -> list:
 
 
 def rate_for(db: Session, type_name: str, period_start: date) -> Optional[float]:
-    """Timesatsen for typen i lønperioden (til beskederne)."""
-    from calculators.rates_loader import load_agreement_types_from_db
-    rate = load_agreement_types_from_db(db).get(type_name)
-    return float(rate) if rate is not None else None
+    """Timesatsen for typen i lønperioden (til beskederne) – inkl. fremtidige satser."""
+    from calculators.agreement_rates import agreement_rate_for_period
+    rate = agreement_rate_for_period(db, type_name, period_start, period_start + timedelta(days=PERIOD_DAYS - 1))
+    return float(rate) if rate else None
 
 
 def _kr(v: Optional[float]) -> str:
