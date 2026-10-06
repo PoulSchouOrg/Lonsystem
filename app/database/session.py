@@ -1,4 +1,5 @@
 import logging
+from datetime import date
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
@@ -79,6 +80,7 @@ def init_db():
     _ensure_payroll_settlement_permissions()
     _ensure_edit_activities_permission()
     _ensure_elev_wage_approve_permission()
+    _seed_agreement_rates_2025_2028()
     _ensure_springer_pay_type()
     _ensure_feriefri_fuldloennet_pay_type()
     _ensure_loen_andet_sted_fra_absence_type()
@@ -873,6 +875,64 @@ def _ensure_edit_activities_permission():
     2026-09-30; før da kunne alle indloggede oprette/rette aktiviteter, så ingen
     eksisterende rolle mister adgang ved indførelsen."""
     _grant_permissions_once("edit_activities", ["edit_activities"])
+
+
+# Lærlingeoverenskomsten 2025-2028 § 8 (stk. 1, disponentspecialet og stk. 6 EGU).
+_LAERLING_RATES = {
+    # type: (1.5.2025, 1.3.2026, 1.3.2027)
+    "Lærling (EUD) Sidste år af lærerkontrakt": ("115.14", "119.17", "123.34"),
+    "Lærling (EUD) Næstsidsteår af lærerkontrakt": ("102.17", "105.75", "109.45"),
+    "Lærling (EUD) Tredjesidste år af lærerkontrakt": ("90.54", "93.71", "96.99"),
+    "Lærling (EUD) Disponentspecialet, sidste uddannelsestrin": ("122.16", "126.43", "130.86"),
+    "EGU-elever": ("79.57", "82.36", "85.24"),
+}
+_RATE_DATES = (date(2025, 5, 1), date(2026, 3, 1), date(2027, 3, 1))
+
+
+def _seed_agreement_rates_2025_2028():
+    """Indlægger satserne fra Lærlingeoverenskomsten 2025-2028 som daterede satser – ÉN gang
+    pr. database (2026-10-06). Ældre satser gemmes som historik; satser hvis dato er
+    nået træder i kraft med det samme (fx EGU 70,74 → 82,36), fremtidige venter."""
+    from decimal import Decimal
+    from datetime import datetime as _dt
+    from database.models import AppliedPermissionGrant, AuditLog, MasterAgreementType, MasterAgreementTypeRate
+    key = "seed_agreement_rates_2025_2028"
+    db = SessionLocal()
+    try:
+        if db.query(AppliedPermissionGrant).filter(AppliedPermissionGrant.key == key).first():
+            return
+        for name, rates in _LAERLING_RATES.items():
+            t = db.query(MasterAgreementType).filter(MasterAgreementType.name == name).first()
+            if t is None:
+                t = MasterAgreementType(name=name, hourly_rate=Decimal(rates[0]))
+                db.add(t)
+                db.flush()
+            existing = {r.valid_from for r in db.query(MasterAgreementTypeRate)
+                        .filter(MasterAgreementTypeRate.agreement_type_id == t.id).all()}
+            current = Decimal(str(t.hourly_rate))
+            # k = den sats der gælder nu (hvis den findes i tabellen): den og ældre gemmes som
+            # historik; nyere satser lægges ind og træder i kraft på deres dato.
+            k = next((i for i, r in enumerate(rates) if Decimal(r) == current), None)
+            for i, (when, rate) in enumerate(zip(_RATE_DATES, rates)):
+                if when in existing:
+                    continue
+                history = k is not None and i <= k
+                db.add(MasterAgreementTypeRate(
+                    agreement_type_id=t.id, valid_from=when, hourly_rate=Decimal(rate),
+                    old_rate=Decimal(rates[i - 1]) if history and i > 0 else None,
+                    applied_at=_dt.now() if history else None, created_by="SYSTEM"))
+            db.add(AuditLog(user_initials="SYSTEM", action="stamdata_create", entity_type="agreement_rate",
+                            entity_id=t.id, details=f"Daterede satser indlagt (Lærlingeoverenskomsten 2025-2028): "
+                            f"'{name}' " + ", ".join(f"{d}: {r}" for d, r in zip(_RATE_DATES, rates))))
+        db.add(AppliedPermissionGrant(key=key))
+        db.commit()
+        from calculators.agreement_rates import apply_due_rates
+        apply_due_rates(db, date.today())
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Fejl ved indlægning af daterede satser: {e}")
+    finally:
+        db.close()
 
 
 def _ensure_elev_wage_approve_permission():
