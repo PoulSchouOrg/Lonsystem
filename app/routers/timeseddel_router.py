@@ -21,7 +21,8 @@ from calculators.overtime import OT_BEFORE_KEY, OT_13_KEY, OT_EXTRA_KEY
 from calculators.pay_rates import CVR_NUMBER
 from database.models import AppUser, Employee, MasterCvrNumber
 from database.session import get_db
-from routers.payroll_router import _calculate_employee, _resolve_period
+from routers.employees import FUNKTIONAER
+from routers.payroll_router import _active_employees, _calculate_employee, _resolve_period
 
 
 def _get_employee_cvr(emp: Employee, db: Session) -> str:
@@ -456,11 +457,19 @@ def send_timeseddel(
     emp = db.query(Employee).filter(Employee.id == employee_id).first()
     if not emp:
         raise HTTPException(404, "Medarbejder ikke fundet")
+    # Samme regler som send-all: ingen funktionærer, kun synlige disponentgrupper
+    # og kun med godkendte aktiviteter – bekræftet af bruger 2026-10-06.
+    if emp.agreement_kind == FUNKTIONAER:
+        raise HTTPException(400, f"Timesedler sendes ikke til funktionærer ({emp.name}) – brug download i stedet")
+    if not (emp.dispatcher_group and emp.dispatcher_group.visible_in_activity_overview):
+        raise HTTPException(400, f"{emp.name} er ikke i en disponentgruppe, der vises i aktivitetsoversigten")
     if not emp.email:
         raise HTTPException(400, f"{emp.name} har ingen e-mailadresse registreret")
 
     period       = _resolve_period(period_start, db)
     calc         = _calculate_employee(emp, period.start_date, period.end_date, db)
+    if calc["activity_count"] == 0:
+        raise HTTPException(400, f"{emp.name} har ingen godkendte aktiviteter i perioden")
     pdf_bytes    = _build_pdf(calc, _get_employee_cvr(emp, db))
     period_label = f"{period.start_date.strftime('%d-%m-%Y')} – {period.end_date.strftime('%d-%m-%Y')}"
     week_label   = _week_label(period.start_date, period.end_date)
@@ -498,10 +507,9 @@ def send_all_timesedler(
     if body.to_date < body.from_date:
         raise HTTPException(400, "Til-dato skal være efter fra-dato")
 
-    q = db.query(Employee).filter(Employee.active == True)
-    if body.employee_id:
-        q = q.filter(Employee.id == body.employee_id)
-    employees = q.order_by(Employee.first_name, Employee.last_name).all()
+    # Kun medarbejdere i disponentgrupper, der vises i aktivitetsoversigten, og
+    # ingen funktionærer (de kan stadig downloade) – bekræftet af bruger 2026-10-06.
+    employees = _active_employees(db, body.employee_id)
 
     period_label = f"{body.from_date.strftime('%d-%m-%Y')} – {body.to_date.strftime('%d-%m-%Y')}"
     week_label   = _week_label(body.from_date, body.to_date)
@@ -509,9 +517,13 @@ def send_all_timesedler(
     sent = []
     skipped_no_email = []
     skipped_no_activities = []
+    skipped_funktionaer = []
     failed = []
 
     for emp in employees:
+        if emp.agreement_kind == FUNKTIONAER:
+            skipped_funktionaer.append(emp.name)
+            continue
         if not emp.email:
             skipped_no_email.append(emp.name)
             continue
@@ -537,5 +549,6 @@ def send_all_timesedler(
         "sent": sent,
         "skipped_no_email": skipped_no_email,
         "skipped_no_activities": skipped_no_activities,
+        "skipped_funktionaer": skipped_funktionaer,
         "failed": failed,
     }

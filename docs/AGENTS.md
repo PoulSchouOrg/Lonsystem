@@ -84,6 +84,8 @@ Alle bjælker skal være 🟢 grønne eller 🔴 røde (ikke 🔵 blå/`pending`
 
 Kolonner (6 felter, semikolon-separeret): CVR (13246505), medarbejdernr, Danløn-kode, antal (timer/antal), sats, total. Sats/total er valgfrie pr. løntype – se `docs/aendringer-danloen.md` for det præcise, gældende format (bl.a. hvornår afsluttende semikolon skrives).
 
+Medarbejdere med `agreement_kind == "funktionaer"` udelades af Danløn-CSV'en (`_build_danloen_csv`), men vises stadig i Lønkørsel, Lønafregning og Fraværsoversigt (2026-10-06).
+
 **Danløn-koder er ikke længere hardkodede.** De konfigureres pr. løntype i Stamdata → Løntypekoder (`master_pay_types`, DB er authoritative). Ved allerførste seeding sættes de fleste standardkoder dog stadig til placeholder-værdien `"1"` (`calculators/pay_rates.py: DANLOEN_CODE_*`), fordi de rigtige koder ikke var kendt da systemet blev bygget – de skal derfor gennemgås og rettes i Stamdata pr. installation før produktionsbrug. Undtaget er søgnehelligdagskoderne (4/63) og feriefri-koden for fuldlønnede (5), som er reelle koder fra start.
 
 ---

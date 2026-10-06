@@ -6709,7 +6709,8 @@ async function sendAllTimesedler() {
     });
     let msg = `${result.sent.length} timeseddel${result.sent.length !== 1 ? "er" : ""} sendt`;
     if (result.skipped_no_email.length)       msg += `, ${result.skipped_no_email.length} uden e-mail`;
-    if (result.skipped_no_activities.length)  msg += `, ${result.skipped_no_activities.length} uden aktiviteter`;
+    if (result.skipped_no_activities.length)  msg += `, ${result.skipped_no_activities.length} uden godkendte aktiviteter`;
+    if (result.skipped_funktionaer?.length)   msg += `, ${result.skipped_funktionaer.length} funktionær${result.skipped_funktionaer.length !== 1 ? "er" : ""} sprunget over`;
     if (result.failed.length)                 msg += `, ${result.failed.length} fejlede`;
     toast(msg, result.failed.length ? "error" : "success");
     if (!result.failed.length) closeModal("modal-pdf");

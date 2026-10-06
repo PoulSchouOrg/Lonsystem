@@ -1287,7 +1287,10 @@ def build_teknisk():
     heading(doc, "Danløn CSV-format", 2, "7.4")
     body(doc, (
         "Kolonnerne i den eksporterede CSV-fil (semikolon-separeret). "
-        "Kolonne 5 og 6 er valgfrie per løntypekode og styres via Stamdata:"
+        "Kolonne 5 og 6 er valgfrie per løntypekode og styres via Stamdata. "
+        "Medarbejdere med Aftale = Funktionær (agreement_kind='funktionaer') udelades altid af "
+        "Danløn CSV'en – også med godkendte timer og synlig disponentgruppe – men vises stadig i "
+        "Lønkørsel, Lønafregning og Fraværsoversigt (2026-10-06):"
     ))
     header_table(doc,
         ["Kolonne", "Altid med?", "Indhold"],
@@ -1341,8 +1344,8 @@ def build_teknisk():
         ["Endepunkt", "Metode", "Beskrivelse"],
         [
             ["/api/timeseddel/{id}/pdf",   "GET",  "Download én medarbejders PDF-timeseddel for en periode."],
-            ["/api/timeseddel/{id}/send",  "POST", "Mailer PDF-timesedlen til medarbejderens registrerede e-mail. Fejler pænt (uden at afsløre SMTP-detaljer for brugeren) hvis medarbejderen ikke har en e-mailadresse registreret."],
-            ["/api/timeseddel/send-all",   "POST", "Bulk-udsendelse for en periode (evt. filtreret til én medarbejder). Returnerer en opdelt status: sendt / sprunget over (ingen mail) / sprunget over (ingen aktiviteter) / fejlet."],
+            ["/api/timeseddel/{id}/send",  "POST", "Mailer PDF-timesedlen til medarbejderens registrerede e-mail. Fejler pænt (uden at afsløre SMTP-detaljer for brugeren) hvis medarbejderen ikke har en e-mailadresse registreret. Afviser (400) funktionærer, medarbejdere uden synlig disponentgruppe og medarbejdere uden godkendte aktiviteter i perioden (2026-10-06)."],
+            ["/api/timeseddel/send-all",   "POST", "Bulk-udsendelse for en periode (evt. filtreret til én medarbejder). Returnerer en opdelt status: sendt / sprunget over (ingen mail) / sprunget over (ingen godkendte aktiviteter) / sprunget over (funktionær) / fejlet. Sender kun til medarbejdere i disponentgrupper, der vises i aktivitetsoversigten, og aldrig til funktionærer – de kan stadig downloade timesedlen (2026-10-06)."],
         ]
     )
     note_box(doc,

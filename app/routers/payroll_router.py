@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from auth import get_current_user, log_action, require_permission
 from database.models import AppUser
 from utils.safe_paths import is_under_allowed_root
+from routers.employees import FUNKTIONAER
 
 from calculators.overtime import (
     OT_13_KEY,
@@ -1144,6 +1145,10 @@ def _build_danloen_csv(employees, period, db: Session) -> bytes:
     _inc_tot  = lambda k: pt.get(k, {}).get("inc_total", False)
 
     for emp in employees:
+        # Funktionærer udelades af Danløn-CSV'en, men vises stadig i Lønkørsel,
+        # Lønafregning og Fraværsoversigt – bekræftet af bruger 2026-10-06.
+        if emp.agreement_kind == FUNKTIONAER:
+            continue
         calc = _calculate_employee(emp, period.start_date, period.end_date, db)
         if (calc["activity_count"] == 0
                 and calc["afspadsering_hours"] == 0
