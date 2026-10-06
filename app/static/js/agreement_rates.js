@@ -14,7 +14,7 @@ async function loadFutureRates() {
         <td style="padding:10px 14px">${h(r.agreement_type)}</td>
         <td style="padding:10px 14px;text-align:right;font-variant-numeric:tabular-nums">${_arKr(r.hourly_rate)}
           <div style="font-size:12px;color:var(--text-light)">nu ${_arKr(r.current_rate)}</div></td>
-        <td style="padding:10px 14px">${formatDateShort(r.valid_from)}</td>
+        <td style="padding:10px 14px">${dkDate(r.valid_from)}</td>
         <td style="padding:10px 14px;text-align:center;white-space:nowrap">
           <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px"
                   onclick='openFutureRateModal(${JSON.stringify(r).replace(/'/g, "&#39;")})'>Rediger</button>
@@ -79,7 +79,7 @@ async function openFutureRateModal(r) {
 }
 
 async function deleteFutureRate(id, name, validFrom) {
-  if (!confirm(`Slet den fremtidige sats for "${name}" fra ${formatDateShort(validFrom)}?`)) return;
+  if (!confirm(`Slet den fremtidige sats for "${name}" fra ${dkDate(validFrom)}?`)) return;
   try {
     await DEL(`/api/agreement-rates/${id}`);
     toast("Fremtidig sats slettet");
@@ -111,8 +111,8 @@ async function checkRateAlerts() {
       document.body.appendChild(el);
     }
     document.getElementById("rate-alert-body").innerHTML = `
-      <p style="font-size:14px;margin-bottom:8px">Nye satser træder i kraft <strong>${formatDateShort(g.valid_from)}</strong>.
-        Hele lønperioden ${formatDateShort(g.period_start)} – ${formatDateShort(g.period_end)} får de nye satser.</p>
+      <p style="font-size:14px;margin-bottom:8px">Nye satser træder i kraft <strong>${dkDate(g.valid_from)}</strong>.
+        Hele lønperioden ${dkPeriod(g.period_start, g.period_end)} får de nye satser.</p>
       <table class="grid-table" style="width:100%;font-size:13px">
         <thead><tr><th>Overenskomsttype</th><th style="text-align:right">Nu</th><th style="text-align:right">Ny</th></tr></thead>
         <tbody>${g.rates.map(r => `<tr><td>${h(r.agreement_type)}</td>
