@@ -10,17 +10,20 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from auth import log_action, require_any_permission, require_permission
 from calculators.elev_agreement import (
-    PERIOD_DAYS, agreement_type_for_period, apply_due_changes, has_elev_steps, is_elev,
-    mismatch_reason, mismatches, step_event_date, upcoming_changes,
+    CLAIM_MINUTES, PERIOD_DAYS, active_claim, agreement_type_for_period, apply_due_changes,
+    first_open_period, has_elev_steps, is_elev, locked_backpay, mismatch_reason, mismatches,
+    step_event_date, upcoming_changes,
 )
+from calculators.elev_steps import dk_period
 from calculators.elev_steps import STEP_AGREEMENT_TYPES, step_for_period
 from calculators.pay_period import period_start_for_date
 from database.models import (
-    AppUser, ElevStepDecision, Employee, MasterAgreementType, Paragraf56AlertDismissal,
+    AppUser, ElevStepClaim, ElevStepDecision, Employee, MasterAgreementType, Paragraf56AlertDismissal,
     PayPeriod, PayPeriodStatus, Role, SystemSettings,
 )
 from database.session import get_db
@@ -132,6 +135,10 @@ def overview(current_user: AppUser = Depends(_view_access), db: Session = Depend
                 row["status"] = "ok" if current_type == row["expected_type"] else "afviger"
                 if row["status"] == "afviger":
                     row["mismatch_reason"] = mismatch_reason(emp, step, current_type, p_start, today)
+                    effective = period_start_for_date(row["expected_event_date"] or p_start)
+                    row["suggested_from"] = first_open_period(db, effective)
+                    row["locked_periods"] = locked_backpay(db, emp, effective, row["suggested_from"],
+                                                           row["expected_type"])
             else:
                 row["status"] = "uden_for_kontrakt"
             ups = upcoming_changes(db, emp, today)
@@ -205,8 +212,62 @@ def alerts(current_user: AppUser = Depends(require_permission(PERM)), db: Sessio
             "effective_to": d.effective_from + timedelta(days=PERIOD_DAYS - 1),
             "took_effect": emp.agreement_type == d.to_type,
         })
+    mm = mismatches(db, today)
+    for item in upcoming + mm:
+        _annotate_claim(db, item, current_user)
     return {"upcoming": sorted(upcoming, key=lambda u: u["effective_from"]), "applied": applied,
-            "mismatches": mismatches(db, today)}
+            "mismatches": mm}
+
+
+def _annotate_claim(db: Session, item: dict, user: AppUser) -> None:
+    c = active_claim(db, item["employee_id"], item["event_date"]) if item.get("event_date") else None
+    item["claimed_by"] = c.initials if c and c.user_id != user.id else None
+    item["claimed_at"] = c.claimed_at if c and c.user_id != user.id else None
+
+
+# ── Lås: "Behandles af ..." ───────────────────────────────────────────────────
+
+class ClaimBody(BaseModel):
+    employee_id: int
+    event_date: date
+
+
+def _take_claim(db: Session, user: AppUser, employee_id: int, event_date: date) -> None:
+    """Giver brugeren låsen, eller 409 hvis en anden er i gang (låsen udløber efter
+    CLAIM_MINUTES minutter, fx hvis browseren lukkes midt i)."""
+    c = active_claim(db, employee_id, event_date)
+    if c and c.user_id != user.id:
+        raise HTTPException(409, f"Behandles allerede af {c.initials} (siden kl. {c.claimed_at.strftime('%H.%M')})")
+    if c:
+        c.claimed_at = datetime.now()
+        db.commit()
+        return
+    db.add(ElevStepClaim(employee_id=employee_id, event_date=event_date, user_id=user.id,
+                         initials=user.initials, claimed_at=datetime.now()))
+    try:
+        db.commit()
+    except IntegrityError:          # en anden nåede det samme øjeblik
+        db.rollback()
+        c = active_claim(db, employee_id, event_date)
+        raise HTTPException(409, f"Behandles allerede af {c.initials if c else 'en anden'}")
+
+
+def _release_claim(db: Session, user: AppUser, employee_id: int, event_date: date) -> None:
+    db.query(ElevStepClaim).filter(ElevStepClaim.employee_id == employee_id,
+                                   ElevStepClaim.event_date == event_date,
+                                   ElevStepClaim.user_id == user.id).delete(synchronize_session=False)
+    db.commit()
+
+
+@router.post("/claim", status_code=204)
+def claim(body: ClaimBody, current_user: AppUser = Depends(require_permission(PERM)), db: Session = Depends(get_db)):
+    _take_claim(db, current_user, body.employee_id, body.event_date)
+
+
+@router.post("/claim/release", status_code=204)
+def release_claim(body: ClaimBody, current_user: AppUser = Depends(require_permission(PERM)),
+                  db: Session = Depends(get_db)):
+    _release_claim(db, current_user, body.employee_id, body.event_date)
 
 
 class SnoozeBody(BaseModel):
@@ -265,9 +326,16 @@ def create_decision(body: DecisionBody, current_user: AppUser = Depends(require_
     if not emp:
         raise HTTPException(404, "Medarbejder ikke fundet")
     note = (body.note or "").strip() or None
+    if body.decision == "keep" and not note:
+        raise HTTPException(400, "Skriv en bemærkning om hvorfor satsen bevares")
+    _take_claim(db, current_user, emp.id, body.event_date)
+    existing = (db.query(ElevStepDecision)
+                .filter(ElevStepDecision.employee_id == emp.id, ElevStepDecision.event_date == body.event_date,
+                        ElevStepDecision.applied_at.is_(None)).first())
+    if existing:
+        _release_claim(db, current_user, emp.id, body.event_date)
+        raise HTTPException(409, f"Allerede behandlet af {existing.decided_by} – annullér den først for at ændre")
     if body.decision == "keep":
-        if not note:
-            raise HTTPException(400, "Skriv en bemærkning om hvorfor satsen bevares")
         d = ElevStepDecision(employee_id=emp.id, event_date=body.event_date, decision="keep",
                              from_type=emp.agreement_type, to_type=body.to_type, note=note,
                              decided_by=current_user.initials)
@@ -277,6 +345,7 @@ def create_decision(body: DecisionBody, current_user: AppUser = Depends(require_
                    f"{emp.name}: overenskomsttype '{emp.agreement_type}' bevares i stedet for "
                    f"'{body.to_type or '–'}' (trin fra {_dk(body.event_date)}). Bemærkning: {note}")
         db.commit()
+        _release_claim(db, current_user, emp.id, body.event_date)
         return {"id": d.id}
 
     if not body.to_type or not db.query(MasterAgreementType).filter(MasterAgreementType.name == body.to_type).first():
@@ -284,7 +353,9 @@ def create_decision(body: DecisionBody, current_user: AppUser = Depends(require_
     effective = period_start_for_date(body.effective_from or body.event_date)
     period = db.query(PayPeriod).filter(PayPeriod.start_date == effective).first()
     if period and period.status == PayPeriodStatus.closed:
+        _release_claim(db, current_user, emp.id, body.event_date)
         raise HTTPException(400, "Lønperioden er låst (eksporteret) – vælg en senere periode")
+    backpay = locked_backpay(db, emp, period_start_for_date(body.event_date), effective, body.to_type)
     from_type = agreement_type_for_period(db, emp, effective - timedelta(days=PERIOD_DAYS))
     d = ElevStepDecision(employee_id=emp.id, event_date=body.event_date, decision="approve",
                          from_type=from_type, to_type=body.to_type, effective_from=effective,
@@ -293,12 +364,14 @@ def create_decision(body: DecisionBody, current_user: AppUser = Depends(require_
     db.flush()
     log_action(db, current_user, "elev_step_approve", "employee", emp.id,
                f"{emp.name}: overenskomsttype '{from_type}' → '{body.to_type}' fra lønperioden "
-               f"{_dk(effective)}–{_dk(effective + timedelta(days=PERIOD_DAYS - 1))}"
-               + (f". Bemærkning: {note}" if note else ""))
+               f"{dk_period(effective, effective + timedelta(days=PERIOD_DAYS - 1))}"
+               + (f". Bemærkning: {note}" if note else "")
+               + "".join(f" {b['text']}" for b in backpay))
     db.commit()
+    _release_claim(db, current_user, emp.id, body.event_date)
     if effective <= today:
         apply_due_changes(db, today, _logger(db, current_user))
-    return {"id": d.id}
+    return {"id": d.id, "backpay": backpay}
 
 
 class CancelBody(BaseModel):

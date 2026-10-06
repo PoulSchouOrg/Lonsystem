@@ -296,7 +296,8 @@ WEEKLY_FLEX_NORMAL_MAX = Decimal("37")
 WEEKLY_FLEX_OT13_MAX = Decimal("5")
 
 
-def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> dict:
+def _calculate_employee(emp: Employee, start: date, end: date, db: Session,
+                        agreement_type: Optional[str] = None) -> dict:
     """Beregn timefordeling og kr. for én medarbejder i et datointerval.
     Alle dage i perioden medtages – dage uden aktivitet vises som 0,
     fraværsdage vises med typenavn (beregning tilføjes senere)."""
@@ -329,7 +330,8 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
 
     try:
         # Elevløn-trin: et godkendt skift gælder fra en lønperiodes start (hele perioden)
-        agreement_type = agreement_type_for_period(db, emp, period_start_for_date(start))
+        # agreement_type angives kun ved efterregulering ("hvad hvis typen havde været rigtig")
+        agreement_type = agreement_type or agreement_type_for_period(db, emp, period_start_for_date(start))
         base_hourly_rate = load_agreement_types_from_db(db).get(agreement_type, Decimal("0"))
     except Exception as e:
         _logging.error(f"Timeløn kunne ikke indlæses for {emp.first_name} {emp.last_name} (id={emp.id}): {e}")

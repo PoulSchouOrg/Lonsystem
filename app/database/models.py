@@ -660,3 +660,18 @@ class ElevStepDecision(Base):
     applied_at = Column(DateTime, nullable=True)     # sat når medarbejderens type er skiftet
 
     employee = relationship("Employee")
+
+
+class ElevStepClaim(Base):
+    """'Behandles af ...' – kun én lønbogholder ad gangen behandler et elevløn-trinskift.
+    Den unikke nøgle gør at to samtidige godkendelser ikke kan lade sig gøre."""
+    __tablename__ = "elev_step_claims"
+
+    id = Column(Integer, primary_key=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    event_date = Column(Date, nullable=False)
+    user_id = Column(Integer, ForeignKey("app_users.id"), nullable=False)
+    initials = Column(String(10), nullable=False)
+    claimed_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (UniqueConstraint("employee_id", "event_date", name="uq_elev_step_claim"),)

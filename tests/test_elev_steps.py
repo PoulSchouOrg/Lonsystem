@@ -173,8 +173,8 @@ def test_mismatch_until_fixed_or_kept_with_note(db, elev, lon):
         "Test Chauffør går ind i sidste år af sin lærekontrakt den 21. november 2026 (lærekontrakten slutter "
         "20. november 2027). "
         f"Den nye sats gælder fra lønperioden 16. november til 29. november 2026, men er overenskomsttypen stadig '{SECOND}'.")
-    later = _alerts(db, lon, date(2026, 12, 1))["mismatches"]       # næste periode, stadig ikke rettet
-    assert "men i lønperioden 30. november til 13. december 2026 er overenskomsttypen stadig" in later[-1]["reason"]
+    later = _alerts(db, lon, date(2026, 12, 1))["mismatches"]       # perioden der lige er slut tjekkes også
+    assert [(m["period_start"], m["suggested_from"], m["locked_periods"]) for m in later] == [(EFFECTIVE, EFFECTIVE, [])]
     with pytest.raises(HTTPException):
         create_decision(DecisionBody(employee_id=elev.id, event_date=EVENT, decision="keep", to_type=LAST),
                         current_user=lon, db=db, today=today)
@@ -252,3 +252,93 @@ def test_payroll_uses_type_for_the_period(db, elev, lon):
     after = _calculate_employee(elev, EFFECTIVE, date(2026, 11, 29), db)
     assert (before["agreement_type"], before["base_hourly_rate"]) == (SECOND, 105.75)
     assert (after["agreement_type"], after["base_hourly_rate"]) == (LAST, 119.17)
+
+
+
+# ── Låste perioder og efterregulering (Jonas-tilfældet) ──────────────────────
+
+def _work(db, emp, day, hours=8):
+    from tests.conftest import make_activity
+    from database.models import ActivityStatus
+    make_activity(db, emp, datetime(day.year, day.month, day.day, 7, 0),
+                  datetime(day.year, day.month, day.day, 7 + hours, 0), status=ActivityStatus.approved)
+
+
+def test_locked_period_shows_backpay_and_suggests_first_open_period(db, elev, lon):
+    _work(db, elev, date(2026, 11, 17))
+    p = db.query(PayPeriod).filter(PayPeriod.start_date == EFFECTIVE).one()
+    p.status = PayPeriodStatus.closed
+    db.commit()
+    m = _alerts(db, lon, date(2026, 12, 1))["mismatches"][0]
+    assert m["suggested_from"] == date(2026, 11, 30)
+    assert m["period_start"] == date(2026, 11, 30)
+    assert "men i lønperioden 30. november til 13. december 2026" in m["reason"]
+    [b] = m["locked_periods"]
+    assert b["period_start"] == EFFECTIVE and b["amount"] > 0
+    assert "Lønperioden 16. november til 29. november 2026 er låst: mangler" in b["text"]
+
+    from routers.elev_router import DecisionBody, create_decision
+    res = create_decision(DecisionBody(employee_id=elev.id, event_date=EVENT, decision="approve", to_type=LAST,
+                                       effective_from=m["suggested_from"]),
+                          current_user=lon, db=db, today=date(2026, 12, 1))
+    assert res["backpay"][0]["amount"] == b["amount"]
+    from database.models import AuditLog
+    assert "skal efterreguleres" in db.query(AuditLog).filter(AuditLog.action == "elev_step_approve").one().details
+
+
+# ── Ændrede elevdatoer annullerer åbne beslutninger ──────────────────────────
+
+def test_changed_dates_cancel_open_decision(db, elev, lon):
+    from database.schemas import EmployeeUpdate
+    from routers.elev_router import DecisionBody, create_decision
+    from routers.employees import update_employee
+    create_decision(DecisionBody(employee_id=elev.id, event_date=EVENT, decision="approve", to_type=LAST),
+                    current_user=lon, db=db, today=date(2026, 11, 1))
+    admin = _user(db, "hr", ["manage_employees"])
+    update_employee(elev.id, EmployeeUpdate(elev_end_date=date(2027, 12, 20)), current_user=admin, db=db)
+    assert db.query(ElevStepDecision).count() == 0
+    from database.models import AuditLog
+    assert "annulleret automatisk, fordi elev_end_date er ændret" in \
+        db.query(AuditLog).filter(AuditLog.action == "elev_step_cancel").one().details
+    up = _alerts(db, lon, date(2026, 11, 20))["upcoming"]
+    assert [u["event_date"] for u in up] == [date(2026, 12, 21)]           # ny dato
+
+
+# ── Lås: "Behandles af ..." og ingen dobbelt godkendelse ─────────────────────
+
+def test_claim_blocks_other_users(db, elev, lon):
+    from routers.elev_router import ClaimBody, DecisionBody, claim, create_decision, release_claim
+    other = _user(db, "per", ["elev_wage_approve"])
+    claim(ClaimBody(employee_id=elev.id, event_date=EVENT), current_user=lon, db=db)
+    up = _alerts(db, other, date(2026, 11, 1))["upcoming"][0]
+    assert up["claimed_by"] == "LON"
+    with pytest.raises(HTTPException) as e:
+        create_decision(DecisionBody(employee_id=elev.id, event_date=EVENT, decision="approve", to_type=LAST),
+                        current_user=other, db=db, today=date(2026, 11, 1))
+    assert e.value.status_code == 409 and "Behandles allerede af LON" in e.value.detail
+    release_claim(ClaimBody(employee_id=elev.id, event_date=EVENT), current_user=lon, db=db)
+    assert _alerts(db, other, date(2026, 11, 1))["upcoming"][0]["claimed_by"] is None
+
+
+def test_claim_expires(db, elev, lon):
+    from datetime import timedelta
+    from database.models import ElevStepClaim
+    from routers.elev_router import ClaimBody, claim
+    other = _user(db, "per", ["elev_wage_approve"])
+    claim(ClaimBody(employee_id=elev.id, event_date=EVENT), current_user=lon, db=db)
+    db.query(ElevStepClaim).one().claimed_at = datetime.now() - timedelta(minutes=16)
+    db.commit()
+    claim(ClaimBody(employee_id=elev.id, event_date=EVENT), current_user=other, db=db)   # ingen fejl
+    assert db.query(ElevStepClaim).one().initials == "PER"
+
+
+def test_second_decision_on_same_change_is_rejected(db, elev, lon):
+    from routers.elev_router import DecisionBody, create_decision
+    other = _user(db, "per", ["elev_wage_approve"])
+    create_decision(DecisionBody(employee_id=elev.id, event_date=EVENT, decision="approve", to_type=LAST),
+                    current_user=lon, db=db, today=date(2026, 11, 1))
+    with pytest.raises(HTTPException) as e:
+        create_decision(DecisionBody(employee_id=elev.id, event_date=EVENT, decision="keep", to_type=LAST,
+                                     note="x"), current_user=other, db=db, today=date(2026, 11, 1))
+    assert e.value.status_code == 409 and "Allerede behandlet af LON" in e.value.detail
+    assert db.query(ElevStepDecision).count() == 1

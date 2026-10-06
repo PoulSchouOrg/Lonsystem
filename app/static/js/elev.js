@@ -94,6 +94,10 @@ function _elevShowAlert(queue, i) {
       : `<p style="font-size:14px">Skiftet for <strong>${h(a.employee_name)}</strong> til <strong>${h(a.to_type)}</strong>
          blev ikke anvendt, fordi overenskomsttypen er ændret manuelt. Tjek medarbejderen.</p>`;
   }
+  if (a.claimed_by) {
+    text += `<p style="font-size:13px;color:var(--warning);margin-top:8px">&#128274; Behandles af
+      <strong>${h(a.claimed_by)}</strong> (siden kl. ${a.claimed_at.slice(11, 16).replace(":", ".")}).</p>`;
+  }
   m.body.innerHTML = text + (more > 0 ? `<p style="font-size:12px;color:var(--text-light);margin-top:8px">+ ${more} flere.</p>` : "");
 
   const next = () => { closeModal("modal-elev-alert"); if (i + 1 < queue.length) _elevShowAlert(queue, i + 1); };
@@ -119,11 +123,12 @@ function _elevShowAlert(queue, i) {
   if (a.kind === "applied") {
     btn("OK", "btn-primary", async () => { await POST(`/api/elev/applied/${a.decision_id}/ack`, {}); next(); });
   } else {
-    btn("Behandl", "btn-primary", () => {
+    if (!a.claimed_by) btn("Behandl", "btn-primary", () => {
       closeModal("modal-elev-alert");
       openElevDecision(a.kind === "mismatch"
         ? { employee_id: a.employee_id, employee_name: a.employee_name, event_date: a.event_date,
-            reason: a.reason, from_type: a.current_type, to_type: a.expected_type, effective_from: a.period_start }
+            reason: a.reason, from_type: a.current_type, to_type: a.expected_type,
+            effective_from: a.suggested_from, locked_periods: a.locked_periods }
         : a, () => { if (i + 1 < queue.length) _elevShowAlert(queue, i + 1); });
     });
   }
@@ -133,11 +138,21 @@ function _elevShowAlert(queue, i) {
 // ── Godkend / behold-dialog ─────────────────────────────────────────────────
 // s: {employee_id, employee_name, event_date, reason, from_type, to_type, effective_from}
 async function openElevDecision(s, onDone) {
+  try {
+    await POST("/api/elev/claim", { employee_id: s.employee_id, event_date: s.event_date });
+  } catch (e) {
+    toast(e.message, "error");          // fx "Behandles allerede af LB (siden kl. 10.42)"
+    if (onDone) onDone();
+    return;
+  }
   if (!_elevState.types.length) await _elevLoadTypes();
   const m = _elevModal("modal-elev-decision", "Elevløn: godkend ændring", 560);
   const periods = [0, 14, 28, 42].map(d => _elevAddDays(s.effective_from, d));
   m.body.innerHTML = `
     <p style="font-size:14px;margin-bottom:12px">${h(s.reason || "")}</p>
+    ${(s.locked_periods || []).length ? `<div class="alert-banner mb-16"><span class="icon">&#128274;</span><div class="text">
+      <h4>Efterregulering</h4>${s.locked_periods.map(b => h(b.text)).join("<br>")}
+      <br>Beløbet skal efterreguleres i Danløn. Det skrives i loggen, når du godkender.</div></div>` : ""}
     <table style="width:100%;font-size:13px;margin-bottom:12px">
       <tr><td style="color:var(--text-light);width:140px">Nuværende</td>
           <td><strong>${h(s.from_type || "")}</strong>${_elevRate(s.from_type)}</td></tr>
@@ -171,7 +186,14 @@ async function openElevDecision(s, onDone) {
       if (onDone) onDone();
     } catch (e) { toast(e.message, "error"); }
   };
-  document.getElementById("elev-dec-cancel").onclick = () => { closeModal("modal-elev-decision"); if (onDone) onDone(); };
+  const release = () => POST("/api/elev/claim/release", { employee_id: s.employee_id, event_date: s.event_date })
+    .catch(() => {});
+  document.getElementById("elev-dec-cancel").onclick = () => {
+    release();
+    closeModal("modal-elev-decision");
+    if (onDone) onDone();
+  };
+  m.el.querySelector(".modal-close").onclick = document.getElementById("elev-dec-cancel").onclick;
   document.getElementById("elev-dec-keep").onclick = () => send("keep");
   document.getElementById("elev-dec-approve").onclick = () => send("approve");
   openModal("modal-elev-decision");
@@ -272,7 +294,7 @@ function _elevDecideFromRow(r, mode) {
   const s = mode === "fix"
     ? { employee_id: r.employee_id, employee_name: r.employee_name,
         event_date: r.expected_event_date,
-        reason: r.mismatch_reason,
+        reason: r.mismatch_reason, effective_from: r.suggested_from, locked_periods: r.locked_periods,
         from_type: r.current_type, to_type: r.expected_type }
     : { employee_id: r.employee_id, employee_name: r.employee_name, event_date: r.next_change.event_date,
         reason: `${r.employee_name} går ind i et nyt år af sin lærekontrakt den ${dkDate(r.next_change.event_date)}.`,
@@ -296,7 +318,7 @@ function renderElevWarnings(container, warnings) {
   const el = document.createElement("div");
   el.className = "alert-banner mb-16";
   el.innerHTML = `<span class="icon">⚠️</span><div class="text"><h4>Mulig fejl i elevløn (${warnings.length})</h4>
-    ${warnings.map(w => h(w.reason)).join("<br>")}
+    ${warnings.map(w => h(w.reason) + (w.locked_periods || []).map(l => "<br>&#128274; " + h(l.text)).join("")).join("<br>")}
     <br><a href="#" onclick="openElevOverview();return false">Åbn elevoversigten</a> for at rette eller bevare satsen.
     Eksporten er ikke blokeret.</div>`;
   container.appendChild(el);
