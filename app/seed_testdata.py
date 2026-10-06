@@ -187,7 +187,7 @@ for nr, fn, ln, agreement, card, schedule, pattern in EMPLOYEES:
 
 # ── Elever til elevløn-trin (2026-10-06) ─────────────────────────────────────
 # Datoer regnes ud fra i dag, så scenarierne altid er aktuelle:
-# 012 skifter til sidste år om ca. 3 uger (advarsel), 013 er gået ind i sidste år
+# 012 skifter til sidste år om ca. 3 uger og 017 om ca. en måned (almindelig advarsel), 013 er gået ind i sidste år
 # men har stadig næstsidste-typen (mulig fejl), 014 er midt i tredjesidste år,
 # 015 er voksenelev (ingen trin) og 016 er EGU-elev (ingen trin).
 def _years_from(d, years, days=0):
@@ -200,6 +200,7 @@ def _years_from(d, years, days=0):
 TODAY = date.today()
 ELEVER = [
     ("012", "Ida", "Elevsen", "Lærling (EUD) Næstsidsteår af lærerkontrakt", _years_from(TODAY, 1, 20), False),
+    ("017", "Nanna", "Elevsen", "Lærling (EUD) Næstsidsteår af lærerkontrakt", _years_from(TODAY, 1, 30), False),
     ("013", "Jonas", "Elevsen", "Lærling (EUD) Næstsidsteår af lærerkontrakt", _years_from(TODAY, 1, -10), False),
     ("014", "Karla", "Elevsen", "Lærling (EUD) Tredjesidste år af lærerkontrakt", _years_from(TODAY, 2, 180), False),
     ("015", "Lars", "Voksenelev", "Chauffør", _years_from(TODAY, 1, 15), True),
