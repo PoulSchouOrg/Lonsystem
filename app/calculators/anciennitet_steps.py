@@ -103,7 +103,8 @@ def mismatches(db: Session, today: date, period_starts: list) -> list:
         if p_start is None:
             continue
         suggested = first_open_period(db, max(effective, period_starts[0]))
-        text = (f"{emp.name} nåede {MONTHS} måneders anciennitet den {dk_date(event)} "
+        verb = "når" if event > today else "nåede"
+        text = (f"{emp.name} {verb} {MONTHS} måneders anciennitet den {dk_date(event)} "
                 f"({_since(emp)} {dk_date(start_date(emp))}). Den nye sats gælder fra lønperioden "
                 f"{dk_period(effective, effective + timedelta(days=PERIOD_DAYS - 1))}, men")
         if p_start != effective:

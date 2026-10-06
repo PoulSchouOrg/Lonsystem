@@ -116,3 +116,9 @@ def test_changed_hire_date_cancels_and_rejects_old_event(db, emp, lon):
         create_decision(DecisionBody(kind="anciennitet", employee_id=emp.id, event_date=EVENT, decision="approve",
                                      to_type=NINE), current_user=lon, db=db, today=date(2026, 11, 1))
     assert e.value.status_code == 409
+
+
+def test_future_date_in_current_period_says_naar(db, emp, lon):
+    # 9 mdr den 20/11, men i dag er 17/11 (samme lønperiode) → hele perioden har allerede den nye sats
+    [m] = _alerts(db, lon, date(2026, 11, 17))["mismatches"]
+    assert m["reason"].startswith("Test Chauffør når 9 måneders anciennitet den 20. november 2026")
