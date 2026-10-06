@@ -788,3 +788,27 @@ hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
   .sidebar { display: none; }
   .form-row { grid-template-columns: 1fr; }
 }
+
+/* ── Advarsler-oversigten (2026-10-06) ── */
+.alerts-bell { position: relative; background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.4);
+  color: #fff; border-radius: 6px; padding: 3px 10px; font-size: 15px; cursor: pointer; margin-right: 4px; }
+.alerts-bell-count { position: absolute; top: -7px; right: -8px; background: var(--danger); color: #fff;
+  border-radius: 10px; font-size: 11px; font-weight: 700; padding: 1px 6px; }
+.ao-grp { margin-bottom: 18px; }
+.ao-grp h3 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--text-light); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.ao-grp h3 .ao-n { background: var(--bg); border-radius: 10px; padding: 0 7px; font-size: 12px; }
+.ao-error h3 { color: var(--danger); }
+.ao-row { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: 8px; margin-bottom: 6px; background: var(--surface); }
+.ao-error .ao-row { border-left: 4px solid var(--danger); }
+.ao-raise .ao-row { border-left: 4px solid var(--primary); }
+.ao-other .ao-row { border-left: 4px solid var(--warning); }
+.ao-txt { flex: 1; min-width: 0; }
+.ao-who { font-weight: 600; }
+.ao-what { font-size: 13px; color: var(--text-light); }
+.ao-extra { font-size: 12px; color: var(--danger); margin-top: 2px; }
+.ao-lock { font-size: 12px; color: var(--warning); margin-top: 2px; }
+.ao-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; max-width: 45%; }
+.ao-acts .btn { padding: 4px 10px; font-size: 12px; white-space: nowrap; }
+.ao-empty { text-align: center; color: var(--text-light); padding: 30px 0; }

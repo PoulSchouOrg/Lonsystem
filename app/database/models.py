@@ -680,6 +680,7 @@ class ElevStepDecision(Base):
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
     event_date = Column(Date, nullable=False)        # dagen eleven går ind i det nye år
     decision = Column(String(10), nullable=False)    # "approve" | "keep"
+    kind = Column(String(20), nullable=False, default="elev", server_default="elev")  # "elev" | "anciennitet"
     from_type = Column(String(200), nullable=True)
     to_type = Column(String(200), nullable=True)
     effective_from = Column(Date, nullable=True)     # lønperiodens startdato
@@ -704,3 +705,15 @@ class ElevStepClaim(Base):
     claimed_at = Column(DateTime, nullable=False)
 
     __table_args__ = (UniqueConstraint("employee_id", "event_date", name="uq_elev_step_claim"),)
+
+
+class UserAlertSettings(Base):
+    """Personlige indstillinger for advarsler (2026-10-06). Mangler rækken, bruges standardværdierne."""
+    __tablename__ = "user_alert_settings"
+
+    user_id = Column(Integer, ForeignKey("app_users.id"), primary_key=True)
+    raise_notice_days = Column(Integer, nullable=False, default=30)    # lønstigninger: dage før lønperioden
+    raise_remind_days = Column(Integer, nullable=True, default=7)      # påmind igen (None = aldrig)
+    other_first_days = Column(Integer, nullable=False, default=30)     # øvrige: første påmindelse
+    other_second_days = Column(Integer, nullable=True, default=7)      # øvrige: anden påmindelse (None = ingen)
+    other_on_day = Column(Boolean, nullable=False, default=True)       # øvrige: på dagen

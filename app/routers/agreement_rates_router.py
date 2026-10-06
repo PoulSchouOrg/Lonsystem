@@ -133,12 +133,17 @@ def rate_alerts(current_user: AppUser = Depends(require_permission("payroll")), 
     if not _explicit(db, current_user, "payroll"):
         return []
     from routers.elev_router import notice_settings
-    notice = notice_settings(db, current_user)[0]
     dismissed = {d.key for d in db.query(UserAlertDismissal).filter(UserAlertDismissal.user_id == current_user.id).all()}
+    return [g for g in rate_groups(db, today, notice_settings(db, current_user)[0])
+            if f"rates_{g['valid_from']}" not in dismissed]
+
+
+def rate_groups(db: Session, today: date, notice_days: int) -> list:
+    """Nye satser hvis lønperiode starter inden for notice_days, til og med dagen de gælder fra."""
     groups: dict = {}
     for r in db.query(MasterAgreementTypeRate).filter(MasterAgreementTypeRate.applied_at.is_(None)).all():
         p_start = period_start_for_date(r.valid_from)
-        if not (p_start - timedelta(days=notice) <= today < r.valid_from) or f"rates_{r.valid_from}" in dismissed:
+        if not (p_start - timedelta(days=notice_days) <= today <= r.valid_from):
             continue
         g = groups.setdefault(r.valid_from, {"valid_from": r.valid_from, "period_start": p_start,
                                              "period_end": p_start + timedelta(days=13), "rates": []})

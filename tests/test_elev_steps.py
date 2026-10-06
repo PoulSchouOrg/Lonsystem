@@ -291,7 +291,7 @@ def test_decision_on_old_dates_is_rejected(db, elev, lon):
     with pytest.raises(HTTPException) as e:
         create_decision(DecisionBody(employee_id=elev.id, event_date=EVENT, decision="approve", to_type=LAST),
                         current_user=lon, db=db, today=date(2026, 11, 1))
-    assert e.value.status_code == 409 and "lærekontrakt er ændret" in e.value.detail
+    assert e.value.status_code == 409 and "datoer er ændret" in e.value.detail
     assert db.query(ElevStepDecision).count() == 0
 
 

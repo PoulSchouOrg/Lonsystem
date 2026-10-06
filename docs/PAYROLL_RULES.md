@@ -106,6 +106,19 @@ Se `DATA_MODEL.md` for tabelstruktur og `CODEREF.md` for implementeringsdetaljer
 - Ændres en elevs datoer, voksenelev-markering eller overenskomsttype, annulleres åbne beslutninger automatisk (logges), og advarslen kommer igen med de rigtige datoer.
 - Alle beslutninger logges i audit-loggen med gammel → ny værdi.
 
+## Lønstigninger og Advarsler-oversigten (fra 2026-10-06)
+- **9 måneders anciennitet** behandles som elevløn-trin: når en medarbejder når 9 måneder, foreslås skift fra
+  '<type>' til '<type>. 9 mdr anciennitet' (hvis typen findes). Der tælles fra **anciennitetsdatoen**, hvis den er
+  udfyldt, ellers fra ansættelsesdatoen. Ligger datoen inde i en lønperiode, gælder den nye sats hele perioden.
+  Varsel før, godkend fra en lønperiode, 'Mulig fejl i løn' hvis det er glemt, efterregulering for låste perioder.
+  Medarbejdere hvor den gamle anciennitetsadvarsel er afvist, springes over.
+- **Advarsler-oversigten** erstatter de enkelte popups: Mulig fejl i løn · Lønstigninger (elevløn + anciennitet) ·
+  Øvrige (nye satser, §56, mærkedage). 🔔 i toppen viser antallet. Vinduet åbner kun af sig selv ved start, når der er
+  nye advarsler.
+- **Personlige indstillinger** (⚙ Indstillinger): Lønstigninger – første besked (standard 30 dage før lønperioden) og
+  påmind igen (7 dage, eller aldrig). Øvrige – første besked (højst 30 dage), anden besked (7 dage) og på dagen;
+  "OK" skjuler kun til næste påmindelse. Man ser kun indstillinger for de advarsler rollen giver.
+
 ## Anciennitet
 
 - Beregnes automatisk fra `hire_date`
