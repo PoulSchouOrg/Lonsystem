@@ -260,7 +260,7 @@ function _elevDecideFromRow(r, mode) {
   const s = mode === "fix"
     ? { employee_id: r.employee_id, employee_name: r.employee_name,
         event_date: r.expected_event_date,
-        reason: `${r.employee_name} har '${r.current_type}', men forventet er '${r.expected_type}'.`,
+        reason: r.mismatch_reason,
         from_type: r.current_type, to_type: r.expected_type }
     : { employee_id: r.employee_id, employee_name: r.employee_name, event_date: r.next_change.event_date,
         reason: `${r.employee_name} går ind i et nyt år af sin lærekontrakt den ${_elevDk(r.next_change.event_date)}.`,

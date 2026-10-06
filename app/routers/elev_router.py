@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from auth import log_action, require_any_permission, require_permission
 from calculators.elev_agreement import (
     PERIOD_DAYS, agreement_type_for_period, apply_due_changes, has_elev_steps, is_elev,
-    mismatches, step_event_date, upcoming_changes,
+    mismatch_reason, mismatches, step_event_date, upcoming_changes,
 )
 from calculators.elev_steps import STEP_AGREEMENT_TYPES, step_for_period
 from calculators.pay_period import period_start_for_date
@@ -130,6 +130,8 @@ def overview(current_user: AppUser = Depends(_view_access), db: Session = Depend
                 row["expected_type"] = STEP_AGREEMENT_TYPES[step]
                 row["expected_event_date"] = step_event_date(emp, step)
                 row["status"] = "ok" if current_type == row["expected_type"] else "afviger"
+                if row["status"] == "afviger":
+                    row["mismatch_reason"] = mismatch_reason(emp, step, current_type, p_start, today)
             else:
                 row["status"] = "uden_for_kontrakt"
             ups = upcoming_changes(db, emp, today)
