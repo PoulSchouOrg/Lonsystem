@@ -63,6 +63,9 @@ Lønbogholderens beslutning om et elevløn-trinskift.
 | note, decided_by, decided_at | | Bemærkning, initialer, tidspunkt |
 | applied_at | DATETIME NULL | Sat når medarbejderens `agreement_type` er skiftet |
 
+### elev_step_claims (2026-10-06)
+Lås mens en lønbogholder behandler et trinskift ("Behandles af LB siden kl. 10.42"). Unik på (employee_id, event_date), så to samtidige godkendelser ikke kan lade sig gøre. Udløber efter 15 minutter.
+
 `system_settings` har desuden `elev_alerts_enabled` (advarsler starter først efter opstartstjekket i Elevoversigten), `elev_notice_days` (varsel, default 30) og `elev_remind_days` (påmind igen dage før, default 7, NULL = aldrig).
 Elevløn-popups afvises/udsættes pr. bruger i `paragraf_56_alert_dismissals` med `alert_type` `elevup_ÅÅÅÅ-MM-DD` (påmind igen), `elevno_ÅÅÅÅ-MM-DD` (påmind ikke igen) og `elevfx_<id>` (trådt i kraft, set).
 
