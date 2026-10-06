@@ -90,9 +90,8 @@ async function openAlertsOverview() {
       [["Behandl", "btn-primary", () => _aoDecision(m)]],
       (m.locked_periods || []).map(l => "&#128274; " + h(l.text)).join("<br>"), m.claimed_by))),
     _aoGroup("raise", "&#128200;", "Lønstigninger", [
+      // Ingen "Påmind mig ikke igen": lønstigninger skal behandles (Behold kræver bemærkning i dialogen)
       ...g.raises.map(u => _aoRow(u.employee_name, h(u.reason), [
-        ["Påmind mig ikke igen", "btn-secondary", () => _aoPost("/api/elev/snooze",
-          { employee_id: u.employee_id, event_date: u.event_date, mode: "never" })],
         ["Påmind igen", "btn-secondary", () => _aoPost("/api/elev/snooze",
           { employee_id: u.employee_id, event_date: u.event_date, mode: "later" })],
         ["Behandl", "btn-primary", () => _aoDecision(u)],
