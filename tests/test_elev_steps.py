@@ -164,9 +164,9 @@ def test_mismatch_until_fixed_or_kept_with_note(db, elev, lon):
     assert [(m["period_start"], m["current_type"], m["expected_type"]) for m in mm] == [(EFFECTIVE, SECOND, LAST)]
     assert mm[0]["reason"] == (
         "Test Chauffør går ind i sidste år af sin lærekontrakt den 21.11.2026 (lærekontrakten slutter 20.11.2027). "
-        f"Den nye sats skal gælde fra lønperioden 16.11.–29.11.2026, men har overenskomsttypen stadig '{SECOND}'.")
+        f"Den nye sats gælder fra lønperioden 16.11.–29.11.2026, men er overenskomsttypen stadig '{SECOND}'.")
     later = _alerts(db, lon, date(2026, 12, 1))["mismatches"]       # næste periode, stadig ikke rettet
-    assert "men i lønperioden 30.11.–13.12.2026 har overenskomsttypen stadig" in later[-1]["reason"]
+    assert "men i lønperioden 30.11.–13.12.2026 er overenskomsttypen stadig" in later[-1]["reason"]
     with pytest.raises(HTTPException):
         create_decision(DecisionBody(employee_id=elev.id, event_date=EVENT, decision="keep", to_type=LAST),
                         current_user=lon, db=db, today=today)

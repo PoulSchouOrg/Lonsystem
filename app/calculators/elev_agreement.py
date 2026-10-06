@@ -145,7 +145,7 @@ def mismatches(db: Session, today: date, period_starts: Optional[list] = None) -
             out.append({
                 "employee_id": emp.id, "employee_name": emp.name, "employee_number": emp.employee_number,
                 "period_start": p_start, "period_end": p_end, "event_date": event,
-                "elev_end_date": emp.elev_end_date, "effective_from": period_start_for_date(event),
+                "elev_end_date": emp.elev_end_date, "effective_from": period_start_for_date(event) if event else None,
                 "current_type": actual, "expected_type": expected,
                 "reason": mismatch_reason(emp, step, actual, p_start, today),
             })
@@ -154,11 +154,10 @@ def mismatches(db: Session, today: date, period_starts: Optional[list] = None) -
 
 def mismatch_reason(emp: Employee, step: str, actual: str, period_start: date, today: date) -> str:
     """Fx: 'Jonas Elevsen gik ind i sidste år af sin lærekontrakt den 27.09.2026 (lærekontrakten
-    slutter 26.09.2027). Den nye sats skulle gælde fra lønperioden 21.09.–04.10.2026, men i
-    lønperioden 05.10.–18.10.2026 har han stadig overenskomsttypen '...'.'"""
+    slutter 26.09.2027). Den nye sats gælder fra lønperioden 21.09.–04.10.2026, men i lønperioden
+    05.10.–18.10.2026 er overenskomsttypen stadig '...'.'"""
     dk = lambda d: d.strftime("%d.%m.%Y")  # noqa: E731
     event = step_event_date(emp, step)
-    effective = period_start_for_date(event)
     p_end = period_start + timedelta(days=PERIOD_DAYS - 1)
     if step == STEP_THIRD_LAST:
         when = f"startede sin lærekontrakt den {dk(event)}" if event else "er i tredjesidste år af sin lærekontrakt"
@@ -167,13 +166,12 @@ def mismatch_reason(emp: Employee, step: str, actual: str, period_start: date, t
         when = f"{verb} ind i {STEP_LABELS[step]} år af sin lærekontrakt den {dk(event)}"
     text = f"{emp.name} {when} (lærekontrakten slutter {dk(emp.elev_end_date)})."
     if event:
-        text += (f" Den nye sats skal gælde fra lønperioden {effective.strftime('%d.%m.')}–"
-                 f"{dk(effective + timedelta(days=PERIOD_DAYS - 1))}")
+        effective = period_start_for_date(event)
+        text += (f" Den nye sats gælder fra lønperioden {effective.strftime('%d.%m.')}–"
+                 f"{dk(effective + timedelta(days=PERIOD_DAYS - 1))}, men")
         if effective != period_start:
-            text += f", men i lønperioden {period_start.strftime('%d.%m.')}–{dk(p_end)}"
-        else:
-            text += ", men"
-        text += f" har overenskomsttypen stadig '{actual}'."
+            text += f" i lønperioden {period_start.strftime('%d.%m.')}–{dk(p_end)}"
+        text += f" er overenskomsttypen stadig '{actual}'."
     else:
         text += f" Overenskomsttypen er '{actual}'."
     return text
