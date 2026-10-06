@@ -304,6 +304,17 @@ def test_changed_dates_cancel_open_decision(db, elev, lon):
     assert [u["event_date"] for u in up] == [date(2026, 12, 21)]           # ny dato
 
 
+def test_decision_on_old_dates_is_rejected(db, elev, lon):
+    from routers.elev_router import DecisionBody, create_decision
+    elev.elev_end_date = date(2027, 12, 20)          # en kollega ændrer datoen mens dialogen er åben
+    db.commit()
+    with pytest.raises(HTTPException) as e:
+        create_decision(DecisionBody(employee_id=elev.id, event_date=EVENT, decision="approve", to_type=LAST),
+                        current_user=lon, db=db, today=date(2026, 11, 1))
+    assert e.value.status_code == 409 and "lærekontrakt er ændret" in e.value.detail
+    assert db.query(ElevStepDecision).count() == 0
+
+
 # ── Lås: "Behandles af ..." og ingen dobbelt godkendelse ─────────────────────
 
 def test_claim_blocks_other_users(db, elev, lon):

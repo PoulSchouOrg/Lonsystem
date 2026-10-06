@@ -20,7 +20,7 @@ from calculators.elev_agreement import (
     step_event_date, upcoming_changes,
 )
 from calculators.elev_steps import dk_period
-from calculators.elev_steps import STEP_AGREEMENT_TYPES, step_for_period
+from calculators.elev_steps import STEP_AGREEMENT_TYPES, step_changes, step_for_period
 from calculators.pay_period import period_start_for_date
 from database.models import (
     AppUser, ElevStepClaim, ElevStepDecision, Employee, MasterAgreementType, Paragraf56AlertDismissal,
@@ -328,6 +328,13 @@ def create_decision(body: DecisionBody, current_user: AppUser = Depends(require_
     note = (body.note or "").strip() or None
     if body.decision == "keep" and not note:
         raise HTTPException(400, "Skriv en bemærkning om hvorfor satsen bevares")
+    # Er lærekontrakten ændret (fx af en kollega i medarbejderformularen), mens dialogen
+    # var åben, hører beslutningen til gamle datoer → afvis.
+    valid_events = {emp.elev_start_date} | {c[0] for c in step_changes(emp.elev_start_date, emp.elev_end_date)} \
+        if has_elev_steps(emp) else set()
+    if body.event_date not in valid_events:
+        _release_claim(db, current_user, emp.id, body.event_date)
+        raise HTTPException(409, "Elevens lærekontrakt er ændret, mens du behandlede den. Luk og åbn igen.")
     _take_claim(db, current_user, emp.id, body.event_date)
     existing = (db.query(ElevStepDecision)
                 .filter(ElevStepDecision.employee_id == emp.id, ElevStepDecision.event_date == body.event_date,
