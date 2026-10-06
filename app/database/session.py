@@ -904,6 +904,11 @@ def _seed_agreement_rates_2025_2028():
         for name, rates in _LAERLING_RATES.items():
             t = db.query(MasterAgreementType).filter(MasterAgreementType.name == name).first()
             if t is None:
+                if "Disponentspecialet" not in name:
+                    # Findes typen ikke under præcis dette navn (fx omdøbt i Stamdata), oprettes
+                    # der ikke en dublet – satserne kan lægges ind i hånden under Fremtidige satser.
+                    logging.warning(f"Daterede satser: overenskomsttypen '{name}' findes ikke – sprunget over")
+                    continue
                 t = MasterAgreementType(name=name, hourly_rate=Decimal(rates[0]))
                 db.add(t)
                 db.flush()
