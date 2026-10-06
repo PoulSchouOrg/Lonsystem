@@ -189,7 +189,7 @@ def _employee_settlement_data(emp, start: date, end: date, db: Session) -> dict:
     oven på den fælles _calculate_employee()-beregning (samme datakilde som Lønkørsel)."""
     calc = _calculate_employee(emp, start, end, db)
 
-    agreement_rate = load_agreement_types_from_db(db).get(emp.agreement_type, Decimal("0"))
+    agreement_rate = load_agreement_types_from_db(db).get(calc["agreement_type"], Decimal("0"))
     # Vægtet gennemsnit over periodens normaltimer (flere tillæg summeres dag for dag).
     personal_supplement_rate = Decimal(str(calc["supplement_rate"]))
 

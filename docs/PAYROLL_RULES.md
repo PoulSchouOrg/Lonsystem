@@ -86,6 +86,18 @@ Se `DATA_MODEL.md` for tabelstruktur og `CODEREF.md` for implementeringsdetaljer
 
 ---
 
+## Elevløn-trin (Lærlingeoverenskomsten 2025-2028 § 8, fra 2026-10-06)
+- EUD-lærlinge lønnes efter år af lærekontrakten, regnet **baglæns** fra slutdatoen: sidste år, næstsidste år, tredjesidste år. Alt før tredjesidste år får tredjesidste-satsen (overenskomsten har ikke flere trin).
+- Skifter eleven trin inde i en lønperiode, gælder den nye sats **hele lønperioden**.
+- Trinnene er overenskomsttyperne `Lærling (EUD) … af lærerkontrakt`. Systemet skifter aldrig selv: lønbogholderen får en popup (30 dage før lønperioden, påmind igen 7 dage før) og godkender, ændrer, udsætter eller bevarer satsen med en bemærkning. Et godkendt skift træder i kraft fra lønperiodens start; Lønkørsel bruger typen for perioden.
+- Afviger en elevs type fra trinnet i en åben periode, vises "Mulig fejl i elevløn" i popup og i Lønkørsel (eksporten blokeres ikke), indtil typen rettes eller bevares med en bemærkning.
+- Voksenlærlinge (fyldt 25 ved aftalens indgåelse, § 8 stk. 4), EGU-elever og disponentspecialet har ingen trin.
+- Popups vises kun for roller hvor rettigheden *Godkend elevlønændring* er sat eksplicit (ikke via systemrollen).
+- Trykker en lønbogholder "Behandl", låses skiftet for de andre ("Behandles af …") i op til 15 minutter. Der kan kun være én åben beslutning pr. skift.
+- Perioden der lige er slut tjekkes altid (den køres typisk nu). Dialogen foreslår den første åbne lønperiode fra trinnets start. Er en periode allerede låst (eksporteret), vises beløbet der mangler ("skal efterreguleres") – regnet som forskellen i Lønafregningens "I alt" med den rigtige type – i dialogen, i Lønkørsel og i loggen. Efterreguleringen laves indtil videre manuelt i Danløn.
+- Ændres en elevs datoer, voksenelev-markering eller overenskomsttype, annulleres åbne beslutninger automatisk (logges), og advarslen kommer igen med de rigtige datoer.
+- Alle beslutninger logges i audit-loggen med gammel → ny værdi.
+
 ## Anciennitet
 
 - Beregnes automatisk fra `hire_date`

@@ -78,6 +78,7 @@ def init_db():
     _ensure_toggle_springer_permission()
     _ensure_payroll_settlement_permissions()
     _ensure_edit_activities_permission()
+    _ensure_elev_wage_approve_permission()
     _ensure_springer_pay_type()
     _ensure_feriefri_fuldloennet_pay_type()
     _ensure_loen_andet_sted_fra_absence_type()
@@ -279,6 +280,7 @@ def _migrate():
             ("elev", "BOOLEAN NOT NULL DEFAULT 0"),
             ("elev_start_date", "DATE"),
             ("elev_end_date", "DATE"),
+            ("voksenelev", "BOOLEAN NOT NULL DEFAULT 0"),
             # Eksisterende medarbejdere sættes bevidst IKKE som medlem (besluttet 2026-10-01);
             # nye medarbejdere får modellens default True.
             ("personaleforening", "BOOLEAN NOT NULL DEFAULT 0"),
@@ -871,6 +873,11 @@ def _ensure_edit_activities_permission():
     2026-09-30; før da kunne alle indloggede oprette/rette aktiviteter, så ingen
     eksisterende rolle mister adgang ved indførelsen."""
     _grant_permissions_once("edit_activities", ["edit_activities"])
+
+
+def _ensure_elev_wage_approve_permission():
+    """Tilføjer elev_wage_approve til lonbogholder-rollen (kun én gang, 2026-10-06)."""
+    _grant_permissions_once("elev_wage_approve", ["elev_wage_approve"], lonbogholder_only=True)
 
 
 def _ensure_payroll_settlement_permissions():

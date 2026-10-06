@@ -132,6 +132,7 @@ def _to_response(emp: Employee, db) -> EmployeeResponse:
         elev=emp.elev,
         elev_start_date=emp.elev_start_date,
         elev_end_date=emp.elev_end_date,
+        voksenelev=emp.voksenelev,
         personaleforening=emp.personaleforening,
         natarbejde_tillaeg=emp.natarbejde_tillaeg,
     )
@@ -614,6 +615,8 @@ def update_employee(employee_id: int, body: EmployeeUpdate,
         # felt er angivet samtidig – nulstil det gemte felt til "ikke relevant".
         body.agreement_type = ""
     old_agreement_type = emp.agreement_type
+    _elev_fields = ("elev", "elev_start_date", "elev_end_date", "voksenelev", "agreement_type")
+    old_elev = {f: getattr(emp, f) for f in _elev_fields}
     _paragraf56_excludes = {"dispatcher_group_id", "fast_bil_vehicle_id", "absence_vehicle_id",
                             "paragraf_56", "paragraf_56_start_date", "paragraf_56_end_date",
                             "cpr_number"}
@@ -649,6 +652,13 @@ def update_employee(employee_id: int, body: EmployeeUpdate,
     # Nulstil afvist anciennitetsadvarsel hvis overenskomsttype er ændret
     if body.agreement_type and body.agreement_type != old_agreement_type:
         emp.anciennitet_dismissed_at = None
+    # Elevløn-trin: ændres elevdatoer/-type, er tidligere beslutninger måske forkerte →
+    # annullér dem (logges), så advarslen kommer igen med de rigtige datoer.
+    changed = [f for f in _elev_fields if getattr(emp, f) != old_elev[f]]
+    if changed:
+        from calculators.elev_agreement import cancel_open_decisions
+        cancel_open_decisions(db, emp, ", ".join(changed),
+                              lambda a, t, i, d: log_action(db, current_user, a, t, i, d))
     db.commit()
     db.refresh(emp)
     return _apply_cpr_mask(_to_response(emp, db), db, current_user)

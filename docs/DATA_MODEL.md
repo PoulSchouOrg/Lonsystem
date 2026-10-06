@@ -35,7 +35,8 @@
 | position_id | INTEGER FK NULL | Stilling (2026-10-01) – FK til `master_positions`. Påkrævet ved gem (server + klient), NULL tilladt i DB for eksisterende |
 | seniority_date | DATE NULL | Anciennitetsdato – bruges KUN til jubilæumsadvarsel (25/40/50 år) |
 | cpr_number | VARCHAR(11) NULL | CPR `ddmmåå-xxxx`. Maskeres server-side (`ddmmåå-****`) uden `view_cpr`; intet unikhedstjek |
-| elev, elev_start_date, elev_end_date | BOOLEAN NOT NULL DEFAULT FALSE / DATE NULL | Elev (kun chauffører). Datoer påkrævede når `elev=true`; ingen lønmæssig effekt |
+| elev, elev_start_date, elev_end_date | BOOLEAN NOT NULL DEFAULT FALSE / DATE NULL | Elev (kun chauffører). Datoer påkrævede når `elev=true`. Bruges til elevløn-trin (se `elev_step_decisions`) |
+| voksenelev | BOOLEAN NOT NULL DEFAULT FALSE | Voksenlærling (§ 8 stk. 4): almindelig overenskomstløn, ingen elevløn-trin (2026-10-06) |
 | personaleforening | BOOLEAN NOT NULL | Medlem af Personaleforening – default TRUE for nye, eksisterende migreret til FALSE |
 | natarbejde_tillaeg | BOOLEAN NOT NULL DEFAULT FALSE | Natarbejdetillæg (kun chauffører) – kun filter/tabel, ingen beregning |
 | created_at | DATETIME | Oprettelsestidspunkt |
@@ -48,6 +49,25 @@
 Nye aftaletyper kan tilføjes via Stamdata (`master_agreement_kinds`-tabellen); timesatser kommer ikke længere fra en hårdkodet type-enum, men fra Excel-arket ("Overenskomsttyper og timesatser.xlsx") pr. `agreement_type`.
 
 Anciennitet beregnes automatisk fra `hire_date`. Pop-up ved 9 måneder hvis `anciennitet_dismissed_at` er tom (se `anciennitet_alert`-tilladelsen).
+
+### elev_step_decisions (2026-10-06)
+Lønbogholderens beslutning om et elevløn-trinskift.
+
+| Kolonne | Type | Beskrivelse |
+|---|---|---|
+| employee_id | INTEGER FK | Eleven |
+| event_date | DATE | Dagen eleven går ind i det nye år af lærekontrakten |
+| decision | VARCHAR(10) | `approve` (skift typen) eller `keep` (bevar typen bevidst, note påkrævet) |
+| from_type, to_type | VARCHAR(200) | Overenskomsttype før / efter |
+| effective_from | DATE NULL | Startdato for lønperioden skiftet gælder fra (hele perioden) |
+| note, decided_by, decided_at | | Bemærkning, initialer, tidspunkt |
+| applied_at | DATETIME NULL | Sat når medarbejderens `agreement_type` er skiftet |
+
+### elev_step_claims (2026-10-06)
+Lås mens en lønbogholder behandler et trinskift ("Behandles af LB siden kl. 10.42"). Unik på (employee_id, event_date), så to samtidige godkendelser ikke kan lade sig gøre. Udløber efter 15 minutter.
+
+Varsel (30 dage før lønperioden) og "påmind igen" (7 dage før) er faste standardværdier i denne version.
+Elevløn-popups afvises/udsættes pr. bruger i `paragraf_56_alert_dismissals` med `alert_type` `elevup_ÅÅÅÅ-MM-DD` (påmind igen), `elevno_ÅÅÅÅ-MM-DD` (påmind ikke igen) og `elevfx_<id>` (trådt i kraft, set).
 
 Mærkedagsadvarsler (jubilæum, elev slutter, rund fødselsdag – 2026-10-01) afvises pr. bruger i `paragraf_56_alert_dismissals` med `alert_type` = begivenheden (`jubilee_25`, `birthday_40`, `elev_ÅÅÅÅ-MM-DD`).
 

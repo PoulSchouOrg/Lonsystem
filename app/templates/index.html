@@ -1490,6 +1490,7 @@
     </div>
     <div class="modal-body">
       <input type="hidden" id="emp-id">
+      <div id="emp-elev-claim-note" class="alert-banner mb-16" style="display:none"></div>
 
       <div class="form-row">
         <div class="form-group">
@@ -1671,6 +1672,12 @@
         <div class="form-group">
           <label>Elev slutdato <span style="color:var(--danger)">*</span></label>
           <div id="emp-elev-end"></div>
+        </div>
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:22px"
+                 title="Voksenlærling (fyldt 25 år ved aftalens indgåelse): almindelig overenskomstløn, ingen elevløn-trin">
+            <input type="checkbox" id="emp-voksenelev"> Voksenelev
+          </label>
         </div>
       </div>
 
@@ -2309,5 +2316,6 @@
 </div>
 
 <script src="/static/js/app.js?v={{ app_js_mtime }}"></script>
+<script src="/static/js/elev.js?v={{ app_js_mtime }}"></script>
 </body>
 </html>

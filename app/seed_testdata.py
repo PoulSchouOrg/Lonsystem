@@ -185,6 +185,44 @@ for nr, fn, ln, agreement, card, schedule, pattern in EMPLOYEES:
 
     print(f"Oprettet: {nr} {fn} {ln} ({agreement}, mønster: {pattern})")
 
+# ── Elever til elevløn-trin (2026-10-06) ─────────────────────────────────────
+# Datoer regnes ud fra i dag, så scenarierne altid er aktuelle:
+# 012 skifter til sidste år om ca. 3 uger og 017 om ca. en måned (almindelig advarsel), 013 er gået ind i sidste år
+# men har stadig næstsidste-typen (mulig fejl), 014 er midt i tredjesidste år,
+# 015 er voksenelev (ingen trin) og 016 er EGU-elev (ingen trin).
+def _years_from(d, years, days=0):
+    try:
+        out = d.replace(year=d.year + years)
+    except ValueError:  # 29/2
+        out = d.replace(year=d.year + years, day=28)
+    return out + timedelta(days=days)
+
+TODAY = date.today()
+ELEVER = [
+    ("012", "Ida", "Elevsen", "Lærling (EUD) Næstsidsteår af lærerkontrakt", _years_from(TODAY, 1, 20), False),
+    ("017", "Nanna", "Elevsen", "Lærling (EUD) Næstsidsteår af lærerkontrakt", _years_from(TODAY, 1, 30), False),
+    ("013", "Jonas", "Elevsen", "Lærling (EUD) Næstsidsteår af lærerkontrakt", _years_from(TODAY, 1, -10), False),
+    ("014", "Karla", "Elevsen", "Lærling (EUD) Tredjesidste år af lærerkontrakt", _years_from(TODAY, 2, 180), False),
+    ("015", "Lars", "Voksenelev", "Chauffør", _years_from(TODAY, 1, 15), True),
+    ("016", "Mia", "Egu", "EGU-elever", _years_from(TODAY, 1), False),
+]
+for nr, fn, ln, agreement, end, voksen in ELEVER:
+    if db.query(Employee).filter(Employee.employee_number == nr).first():
+        print(f"Springer over (findes): {nr} {fn} {ln}")
+        continue
+    db.add(Employee(
+        employee_number=nr, tachograph_card_number=f"DK0000017890{nr}",
+        first_name=fn, last_name=ln, address="Testvej 1", postal_code="2600",
+        email=f"{fn.lower()}@poulschou-test.dk", mobile="12345678",
+        agreement_kind=AgreementKind.hourly_fixed, agreement_type=agreement,
+        fuldloennet=True, active=True, hire_date=_years_from(end, -3, 1),
+        termination_date=date(9999, 12, 31), work_schedule=FIVE_DAY_7,
+        elev=True, elev_start_date=_years_from(end, -2 if voksen else -3, 1), elev_end_date=end,
+        voksenelev=voksen,
+    ))
+    created += 1
+    print(f"Oprettet elev: {nr} {fn} {ln} ({agreement}, slut {end})")
+
 db.commit()
 db.close()
-print(f"\n{created} testmedarbejdere oprettet med aktiviteter i perioden 1/6-14/6 2026.")
+print(f"\n{created} testmedarbejdere oprettet (aktiviteter i perioden 1/6-14/6 2026).")

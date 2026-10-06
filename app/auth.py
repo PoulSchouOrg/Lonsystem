@@ -38,6 +38,7 @@ ALL_PERMISSIONS = {
     "view_cpr":            "Se CPR-nummer",
     "jubilee_alert":       "Jubilæumsadvarsel",
     "elev_alert":          "Elevadvarsel",
+    "elev_wage_approve":   "Godkend elevlønændring",
     "birthday_alert":      "Fødselsdagsadvarsel",
     "employee_table_view": "Tabelvisning af medarbejdere",
     "employee_export":     "Eksportér medarbejderregister",
