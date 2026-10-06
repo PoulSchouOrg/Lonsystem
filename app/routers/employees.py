@@ -132,6 +132,7 @@ def _to_response(emp: Employee, db) -> EmployeeResponse:
         elev=emp.elev,
         elev_start_date=emp.elev_start_date,
         elev_end_date=emp.elev_end_date,
+        voksenelev=emp.voksenelev,
         personaleforening=emp.personaleforening,
         natarbejde_tillaeg=emp.natarbejde_tillaeg,
     )

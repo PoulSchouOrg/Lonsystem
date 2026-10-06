@@ -117,6 +117,8 @@ class Employee(Base):
     elev = Column(Boolean, default=False, nullable=False)
     elev_start_date = Column(Date, nullable=True)
     elev_end_date = Column(Date, nullable=True)
+    # Voksenlærling (§ 8 stk. 4): almindelig overenskomstløn, ingen elevløn-trin
+    voksenelev = Column(Boolean, default=False, nullable=False)
     personaleforening = Column(Boolean, default=True, nullable=False)
     natarbejde_tillaeg = Column(Boolean, default=False, nullable=False)  # kun til filtrering
 
@@ -563,6 +565,11 @@ class SystemSettings(Base):
 
     id = Column(Integer, primary_key=True)
     auto_approval_enabled = Column(Boolean, default=True, nullable=False, server_default="1")
+    # Elevløn-trin (2026-10-06): advarsler starter først når lønbogholderen har
+    # gennemgået elevoversigten. remind_days = None betyder "Aldrig".
+    elev_alerts_enabled = Column(Boolean, default=False, nullable=False, server_default="0")
+    elev_notice_days = Column(Integer, default=30, nullable=False, server_default="30")
+    elev_remind_days = Column(Integer, nullable=True, default=7, server_default="7")
     updated_by = Column(String, nullable=True)   # initialer på seneste bruger der ændrede
     updated_at = Column(DateTime, nullable=True)
 
@@ -632,3 +639,24 @@ class EmployeePayrollReadyFlag(Base):
     __table_args__ = (
         Index("uq_employee_payroll_ready_flags_emp_period", "employee_id", "pay_period_id", unique=True),
     )
+
+
+class ElevStepDecision(Base):
+    """Lønbogholderens beslutning om et elevløn-trinskift (2026-10-06).
+    decision="approve": overenskomsttypen skiftes fra effective_from (en lønperiodes
+    startdato). decision="keep": typen bevares bevidst (note påkrævet)."""
+    __tablename__ = "elev_step_decisions"
+
+    id = Column(Integer, primary_key=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    event_date = Column(Date, nullable=False)        # dagen eleven går ind i det nye år
+    decision = Column(String(10), nullable=False)    # "approve" | "keep"
+    from_type = Column(String(200), nullable=True)
+    to_type = Column(String(200), nullable=True)
+    effective_from = Column(Date, nullable=True)     # lønperiodens startdato
+    note = Column(Text, nullable=True)
+    decided_by = Column(String, nullable=False)
+    decided_at = Column(DateTime, server_default=func.now())
+    applied_at = Column(DateTime, nullable=True)     # sat når medarbejderens type er skiftet
+
+    employee = relationship("Employee")

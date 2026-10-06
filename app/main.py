@@ -21,6 +21,7 @@ from routers import timeseddel_router
 from routers import stamdata as stamdata_router
 from routers import dagsplan_router
 from routers.auto_approval_router import router as auto_approval_router
+from routers import elev_router
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -104,13 +105,14 @@ app.include_router(employee_supplements.router)
 app.include_router(vagtplan_comments.router)
 app.include_router(stamdata_router.router)
 app.include_router(auto_approval_router)
+app.include_router(elev_router.router)
 
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    app_js = BASE_DIR / "static" / "js" / "app.js"
     try:
-        mtime = int(app_js.stat().st_mtime)
+        # Højeste mtime af de to scripts, så en ændring i elev.js også bryder browser-cachen
+        mtime = max(int((BASE_DIR / "static" / "js" / name).stat().st_mtime) for name in ("app.js", "elev.js"))
     except OSError:
         mtime = 0
     return templates.TemplateResponse("index.html", {

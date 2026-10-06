@@ -368,6 +368,7 @@
         <h2 style="font-size:16px;font-weight:600">Medarbejdere</h2>
         <div class="spacer"></div>
         <button class="btn btn-primary" onclick="openParagraf56ListModal()">§56</button>
+        <button class="btn btn-secondary" data-perm-require="elev_wage_approve" onclick="openElevOverview()">Elever</button>
         <button class="btn btn-secondary" id="btn-employee-view-toggle" data-perm-require="employee_table_view" onclick="toggleEmployeeView()">Tabel</button>
         <button class="btn btn-secondary" id="btn-employee-export" style="display:none" onclick="exportEmployeesXlsx()">Eksportér til Excel</button>
         <input type="text" id="employee-search" placeholder="Søg navn, lønnr. eller telefon…"
@@ -1672,6 +1673,12 @@
           <label>Elev slutdato <span style="color:var(--danger)">*</span></label>
           <div id="emp-elev-end"></div>
         </div>
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:22px"
+                 title="Voksenlærling (fyldt 25 år ved aftalens indgåelse): almindelig overenskomstløn, ingen elevløn-trin">
+            <input type="checkbox" id="emp-voksenelev"> Voksenelev
+          </label>
+        </div>
       </div>
 
       <div class="form-row emp-driver-only" id="emp-fast-bil-vehicle-row" style="display:none">
@@ -2309,5 +2316,6 @@
 </div>
 
 <script src="/static/js/app.js?v={{ app_js_mtime }}"></script>
+<script src="/static/js/elev.js?v={{ app_js_mtime }}"></script>
 </body>
 </html>
