@@ -15,7 +15,7 @@ from calculators.agreement_rates import apply_due_rates
 from calculators.pay_period import period_start_for_date
 from database.models import (
     AppUser, Employee, MasterAgreementType, MasterAgreementTypeRate, PayPeriod, PayPeriodStatus, Role,
-    SystemSettings, UserAlertDismissal,
+    UserAlertDismissal,
 )
 from database.session import get_db
 
@@ -132,8 +132,8 @@ def rate_alerts(current_user: AppUser = Depends(require_permission("payroll")), 
     today = today or date.today()
     if not _explicit(db, current_user, "payroll"):
         return []
-    s = db.query(SystemSettings).filter(SystemSettings.id == 1).first()
-    notice = s.elev_notice_days if s else 30
+    from routers.elev_router import notice_settings
+    notice = notice_settings(db, current_user)[0]
     dismissed = {d.key for d in db.query(UserAlertDismissal).filter(UserAlertDismissal.user_id == current_user.id).all()}
     groups: dict = {}
     for r in db.query(MasterAgreementTypeRate).filter(MasterAgreementTypeRate.applied_at.is_(None)).all():
