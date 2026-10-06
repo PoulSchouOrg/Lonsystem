@@ -82,7 +82,7 @@ Lønbogholderens beslutning om et elevløn-trinskift.
 
 ### user_alert_settings (2026-10-06)
 Personlige indstillinger for advarsler: `raise_notice_days` (30), `raise_remind_days` (7, NULL = aldrig),
-`other_first_days` (30, højst 30), `other_second_days` (7, NULL = ingen), `other_on_day` (sand). Uden række bruges
+`other_first_days` (30, højst 30), `other_second_days` (7, NULL = ingen), `other_on_day` (sand), `auto_open` (sand: åbn Advarsler selv ved start, når der er nyt). Uden række bruges
 standardværdierne. Oversigten gemmer `seen:<nøgle>` (vist) og `ok:<nøgle>@<påmindelse>` (OK på en øvrig advarsel)
 i `user_alert_dismissals`.
 

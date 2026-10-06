@@ -717,3 +717,4 @@ class UserAlertSettings(Base):
     other_first_days = Column(Integer, nullable=False, default=30)     # øvrige: første påmindelse
     other_second_days = Column(Integer, nullable=True, default=7)      # øvrige: anden påmindelse (None = ingen)
     other_on_day = Column(Boolean, nullable=False, default=True)       # øvrige: på dagen
+    auto_open = Column(Boolean, nullable=False, default=True)          # åbn oversigten selv ved start

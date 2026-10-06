@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
 SEEN, OK = "seen:", "ok:"
 DEFAULTS = {"raise_notice_days": 30, "raise_remind_days": 7,
-            "other_first_days": 30, "other_second_days": 7, "other_on_day": True}
+            "other_first_days": 30, "other_second_days": 7, "other_on_day": True, "auto_open": True}
 
 
 def _short(prefix: str, key: str) -> str:
@@ -113,7 +113,7 @@ def get_alerts(current_user: AppUser = Depends(get_current_user), db: Session = 
     seen = {d.key for d in db.query(UserAlertDismissal)
             .filter(UserAlertDismissal.user_id == current_user.id, UserAlertDismissal.key.like(SEEN + "%")).all()}
     return {"groups": groups, "total": len(keys), "new_keys": [k for k in keys if _short(SEEN, k) not in seen],
-            "sections": _sections(db, current_user)}
+            "sections": _sections(db, current_user), "auto_open": _settings(db, current_user)["auto_open"]}
 
 
 class KeysBody(BaseModel):
@@ -155,6 +155,7 @@ class SettingsBody(BaseModel):
     other_first_days: int = Field(ge=1, le=30)          # mærkedage og §56 kigger højst 1 måned frem
     other_second_days: Optional[int] = Field(default=None, ge=1, le=30)
     other_on_day: bool = True
+    auto_open: bool = True                               # åbn Advarsler selv ved start, når der er nyt
 
 
 @router.put("/settings")

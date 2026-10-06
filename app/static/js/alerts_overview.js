@@ -12,7 +12,8 @@ async function checkAllAlerts() {
   try {
     _ao.data = await GET("/api/alerts");
     _aoUpdateBell(_ao.data.total);
-    if (_ao.data.new_keys.length) openAlertsOverview();
+    // Åbner kun af sig selv, når der er nyt – og brugeren ikke har slået det fra i ⚙ Indstillinger
+    if (_ao.data.new_keys.length && _ao.data.auto_open) openAlertsOverview();
   } catch (e) {
     console.error("Advarsler kunne ikke hentes:", e);
   }
@@ -171,6 +172,10 @@ async function openAlertSettings() {
   const num = (id, v, max) => `<input type="number" id="${id}" min="1" max="${max}" value="${v ?? ""}" style="width:80px">`;
   document.getElementById("as-body").innerHTML = `
     <p style="font-size:13px;color:var(--text-light);margin-bottom:12px">Indstillingerne gælder kun for dig.</p>
+    <div class="form-group"><label style="display:flex;gap:8px;align-items:center">
+      <input type="checkbox" id="as-auto" ${s.auto_open ? "checked" : ""}>
+      Åbn Advarsler automatisk ved start, når der er nye advarsler</label>
+      <div style="font-size:12px;color:var(--text-light);margin-top:2px">Slået fra: advarslerne vises kun i &#128276;.</div></div>
     ${s.sections.raises ? `
       <h3 style="font-size:14px;margin-bottom:8px">&#128200; Lønstigninger</h3>
       <div class="form-group"><label>Første besked (dage før lønperioden med stigningen)</label>${num("as-rn", s.raise_notice_days, 365)}</div>
@@ -195,6 +200,7 @@ async function openAlertSettings() {
         other_first_days: val("as-o1", s.other_first_days),
         other_second_days: val("as-o2", s.other_second_days),
         other_on_day: document.getElementById("as-od") ? document.getElementById("as-od").checked : s.other_on_day,
+        auto_open: document.getElementById("as-auto").checked,
       });
       toast("Indstillinger gemt");
       closeModal("modal-alert-settings");

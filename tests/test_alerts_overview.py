@@ -86,6 +86,16 @@ def test_personal_settings(db, data):
     assert get_settings(current_user=other, db=db)["other_first_days"] == 30   # kun for den bruger
 
 
+def test_auto_open_can_be_turned_off(db, data):
+    from routers.alerts_router import SettingsBody, put_settings
+    user = _user(db, "anc", ["anciennitet_alert"])
+    assert _get(db, user, date(2026, 11, 1))["auto_open"] is True
+    put_settings(SettingsBody(raise_notice_days=30, raise_remind_days=7, other_first_days=30, other_second_days=7,
+                              auto_open=False), current_user=user, db=db)
+    res = _get(db, user, date(2026, 11, 1))
+    assert res["auto_open"] is False and res["total"] == 1          # advarslen er der stadig (🔔)
+
+
 def test_seen_keys_fit_the_column():
     from routers.alerts_router import _short, SEEN
     assert len(_short(SEEN, "x" * 80)) == 50
