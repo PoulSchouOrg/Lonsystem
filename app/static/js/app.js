@@ -6963,9 +6963,15 @@ async function init() {
   document.getElementById("vehicle-search")?.addEventListener("input", renderVehicleList);
   document.getElementById("supplement-employee-search")?.addEventListener("input", renderSupplementEmployeeList);
 
+  // Klik på den mørke baggrund lukker vinduet – men kun hvis musen også blev TRYKKET ned på
+  // baggrunden. Ellers lukkede vinduet (og input gik tabt), når man markerede tekst i et felt
+  // og slap musen uden for vinduet (2026-10-06).
   document.querySelectorAll(".modal-overlay").forEach(overlay => {
+    let pressedOnOverlay = false;
+    overlay.addEventListener("mousedown", e => { pressedOnOverlay = e.target === overlay; });
     overlay.addEventListener("click", e => {
-      if (e.target === overlay) overlay.classList.remove("open");
+      if (e.target === overlay && pressedOnOverlay) overlay.classList.remove("open");
+      pressedOnOverlay = false;
     });
   });
 

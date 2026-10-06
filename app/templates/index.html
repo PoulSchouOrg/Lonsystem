@@ -928,7 +928,7 @@
   </div>
 </div>
 
-<div id="modal-paragraf56-sygdom-confirm" class="modal-overlay" onclick="if(event.target===this)_resolveParagraf56SygdomChoice('cancel')">
+<div id="modal-paragraf56-sygdom-confirm" class="modal-overlay" onmousedown="this._down = event.target===this" onclick="if(event.target===this && this._down)_resolveParagraf56SygdomChoice('cancel'); this._down = false">
   <div class="modal" style="width:440px">
     <div class="modal-header">
       <h2>&#9888; Aktiv §56-aftale</h2>
