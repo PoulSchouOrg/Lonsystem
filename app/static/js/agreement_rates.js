@@ -15,6 +15,7 @@ async function loadFutureRates() {
         <td style="padding:10px 14px;text-align:right;font-variant-numeric:tabular-nums">${_arKr(r.hourly_rate)}
           <div style="font-size:12px;color:var(--text-light)">nu ${_arKr(r.current_rate)}</div></td>
         <td style="padding:10px 14px">${dkDate(r.valid_from)}</td>
+        <td style="padding:10px 14px;color:var(--text-light)">${h(r.note || "")}</td>
         <td style="padding:10px 14px;text-align:center;white-space:nowrap">
           <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px"
                   onclick='openFutureRateModal(${JSON.stringify(r).replace(/'/g, "&#39;")})'>Rediger</button>
@@ -22,9 +23,9 @@ async function loadFutureRates() {
                   onclick="deleteFutureRate(${r.id}, ${jq(r.agreement_type)}, ${jq(r.valid_from)})">Slet</button>
         </td>
       </tr>`).join("")
-      : `<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text-light)">Ingen fremtidige satser</td></tr>`;
+      : `<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text-light)">Ingen fremtidige satser</td></tr>`;
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--danger)">${h(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--danger)">${h(e.message)}</td></tr>`;
   }
 }
 
@@ -46,6 +47,8 @@ async function openFutureRateModal(r) {
           <div class="form-group"><label>Gælder fra</label><input type="date" id="future-rate-date">
             <div style="font-size:12px;color:var(--text-light);margin-top:4px">
               Ligger datoen inde i en lønperiode, gælder den nye sats hele perioden.</div></div>
+          <div class="form-group"><label>Begrundelse (vises i advarslen til lønbogholderen)</label>
+            <input type="text" id="future-rate-note" maxlength="300" placeholder="fx Lokal lønaftale 2026"></div>
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" onclick="closeModal('modal-future-rate')">Annuller</button>
@@ -59,11 +62,13 @@ async function openFutureRateModal(r) {
     `<option value="${t.id}" ${r && r.agreement_type_id === t.id ? "selected" : ""}>${h(t.name)} (nu ${_arKr(t.hourly_rate)})</option>`).join("");
   document.getElementById("future-rate-rate").value = r ? r.hourly_rate : "";
   document.getElementById("future-rate-date").value = r ? r.valid_from : "";
+  document.getElementById("future-rate-note").value = r ? (r.note || "") : "";
   document.getElementById("future-rate-save").onclick = async () => {
     const body = {
       agreement_type_id: parseInt(document.getElementById("future-rate-type").value, 10),
       hourly_rate: parseFloat(document.getElementById("future-rate-rate").value),
       valid_from: document.getElementById("future-rate-date").value,
+      note: document.getElementById("future-rate-note").value,
     };
     if (isNaN(body.hourly_rate) || !body.valid_from) { toast("Udfyld timesats og dato", "error"); return; }
     try {
@@ -111,13 +116,16 @@ async function checkRateAlerts() {
       document.body.appendChild(el);
     }
     document.getElementById("rate-alert-body").innerHTML = `
-      <p style="font-size:14px;margin-bottom:8px">Nye satser træder i kraft <strong>${dkDate(g.valid_from)}</strong>.
-        Hele lønperioden ${dkPeriod(g.period_start, g.period_end)} får de nye satser.</p>
-      <table class="grid-table" style="width:100%;font-size:13px">
-        <thead><tr><th>Overenskomsttype</th><th style="text-align:right">Nu</th><th style="text-align:right">Ny</th></tr></thead>
-        <tbody>${g.rates.map(r => `<tr><td>${h(r.agreement_type)}</td>
-          <td style="text-align:right">${_arKr(r.current_rate)}</td><td style="text-align:right">${_arKr(r.new_rate)}</td></tr>`).join("")}</tbody>
-      </table>
+      <p style="font-size:14px;margin-bottom:8px">Fra <strong>${dkDate(g.valid_from)}</strong> stiger timesatsen for
+        følgende overenskomsttyper. Hele lønperioden ${dkPeriod(g.period_start, g.period_end)} får de nye satser.</p>
+      ${g.rates.map(r => `
+        <div style="border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:13px">
+          <strong>${h(r.agreement_type)}</strong>: ${_arKr(r.current_rate)} → <strong>${_arKr(r.new_rate)}</strong>
+          ${r.note ? `<div>Begrundelse: ${h(r.note)}</div>` : ""}
+          <div style="color:var(--text-light)">${r.employees.length
+            ? `Berører ${r.employees.length} medarbejder${r.employees.length === 1 ? "" : "e"}: ${r.employees.map(h).join(", ")}`
+            : "Ingen aktive medarbejdere har typen i dag"}</div>
+        </div>`).join("")}
       ${groups.length > 1 ? `<p style="font-size:12px;color:var(--text-light);margin-top:8px">+ ${groups.length - 1} flere datoer.</p>` : ""}`;
     document.getElementById("rate-alert-ok").onclick = async () => {
       await POST("/api/agreement-rates/alerts/dismiss", { valid_from: g.valid_from });

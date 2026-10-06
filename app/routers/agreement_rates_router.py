@@ -14,7 +14,7 @@ from auth import log_action, require_permission
 from calculators.agreement_rates import apply_due_rates
 from calculators.pay_period import period_start_for_date
 from database.models import (
-    AppUser, MasterAgreementType, MasterAgreementTypeRate, PayPeriod, PayPeriodStatus, Role,
+    AppUser, Employee, MasterAgreementType, MasterAgreementTypeRate, PayPeriod, PayPeriodStatus, Role,
     SystemSettings, UserAlertDismissal,
 )
 from database.session import get_db
@@ -27,11 +27,13 @@ def _out(r: MasterAgreementTypeRate) -> dict:
     return {"id": r.id, "agreement_type_id": r.agreement_type_id, "agreement_type": r.agreement_type.name,
             "valid_from": r.valid_from, "hourly_rate": float(r.hourly_rate),
             "old_rate": float(r.old_rate) if r.old_rate is not None else None,
-            "current_rate": float(r.agreement_type.hourly_rate), "applied": r.applied_at is not None}
+            "current_rate": float(r.agreement_type.hourly_rate), "applied": r.applied_at is not None,
+            "note": r.note}
 
 
 def _describe(r: MasterAgreementTypeRate) -> str:
-    return f"'{r.agreement_type.name}' {Decimal(str(r.hourly_rate)):.2f} kr fra {r.valid_from.strftime('%d.%m.%Y')}"
+    return (f"'{r.agreement_type.name}' {Decimal(str(r.hourly_rate)):.2f} kr fra {r.valid_from.strftime('%d.%m.%Y')}"
+            + (f" (begrundelse: {r.note})" if r.note else ""))
 
 
 @router.get("")
@@ -49,6 +51,7 @@ class RateBody(BaseModel):
     agreement_type_id: int
     valid_from: date
     hourly_rate: float = Field(gt=0)
+    note: Optional[str] = Field(default=None, max_length=300)
 
 
 def _validate(db: Session, body: RateBody, rate_id: Optional[int] = None) -> MasterAgreementType:
@@ -70,7 +73,8 @@ def _validate(db: Session, body: RateBody, rate_id: Optional[int] = None) -> Mas
 def create_rate(body: RateBody, current_user: AppUser = Depends(_access), db: Session = Depends(get_db)):
     _validate(db, body)
     r = MasterAgreementTypeRate(agreement_type_id=body.agreement_type_id, valid_from=body.valid_from,
-                                hourly_rate=Decimal(str(body.hourly_rate)), created_by=current_user.initials)
+                                hourly_rate=Decimal(str(body.hourly_rate)), created_by=current_user.initials,
+                                note=(body.note or "").strip() or None)
     db.add(r)
     db.flush()
     log_action(db, current_user, "stamdata_create", "agreement_rate", r.id, f"Fremtidig sats oprettet: {_describe(r)}")
@@ -90,6 +94,7 @@ def update_rate(rate_id: int, body: RateBody, current_user: AppUser = Depends(_a
     _validate(db, body, rate_id)
     before = _describe(r)
     r.agreement_type_id, r.valid_from, r.hourly_rate = body.agreement_type_id, body.valid_from, Decimal(str(body.hourly_rate))
+    r.note = (body.note or "").strip() or None
     db.flush()
     db.refresh(r)
     log_action(db, current_user, "stamdata_update", "agreement_rate", r.id, f"Fremtidig sats ændret: {before} → {_describe(r)}")
@@ -137,8 +142,12 @@ def rate_alerts(current_user: AppUser = Depends(require_permission("payroll")), 
             continue
         g = groups.setdefault(r.valid_from, {"valid_from": r.valid_from, "period_start": p_start,
                                              "period_end": p_start + timedelta(days=13), "rates": []})
+        employees = (db.query(Employee).filter(Employee.active == True,  # noqa: E712
+                                               Employee.agreement_type == r.agreement_type.name)
+                     .order_by(Employee.first_name, Employee.last_name).all())
         g["rates"].append({"agreement_type": r.agreement_type.name, "current_rate": float(r.agreement_type.hourly_rate),
-                           "new_rate": float(r.hourly_rate)})
+                           "new_rate": float(r.hourly_rate), "note": r.note,
+                           "employees": [e.name for e in employees]})
     return sorted(groups.values(), key=lambda g: g["valid_from"])
 
 

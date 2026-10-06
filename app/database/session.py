@@ -298,6 +298,10 @@ def _migrate():
             "ON employee_supplements(employee_id)"
         )
         conn.commit()
+        rate_cols = {row[1] for row in conn.execute("PRAGMA table_info(master_agreement_type_rates)")}
+        if rate_cols and "note" not in rate_cols:
+            conn.execute("ALTER TABLE master_agreement_type_rates ADD COLUMN note TEXT")
+            conn.commit()
         sup_cols2 = {row[1] for row in conn.execute("PRAGMA table_info(employee_supplements)")}
         if "deactivated_at" not in sup_cols2:
             conn.execute("ALTER TABLE employee_supplements ADD COLUMN deactivated_at DATETIME")
@@ -925,7 +929,8 @@ def _seed_agreement_rates_2025_2028():
                 db.add(MasterAgreementTypeRate(
                     agreement_type_id=t.id, valid_from=when, hourly_rate=Decimal(rate),
                     old_rate=Decimal(rates[i - 1]) if history and i > 0 else None,
-                    applied_at=_dt.now() if history else None, created_by="SYSTEM"))
+                    applied_at=_dt.now() if history else None, created_by="SYSTEM",
+                    note="Lærlingeoverenskomsten 2025-2028"))
             db.add(AuditLog(user_initials="SYSTEM", action="stamdata_create", entity_type="agreement_rate",
                             entity_id=t.id, details=f"Daterede satser indlagt (Lærlingeoverenskomsten 2025-2028): "
                             f"'{name}' " + ", ".join(f"{d}: {r}" for d, r in zip(_RATE_DATES, rates))))

@@ -451,6 +451,7 @@ class MasterAgreementTypeRate(Base):
     hourly_rate = Column(Numeric(10, 2), nullable=False)
     old_rate = Column(Numeric(10, 2), nullable=True)
     applied_at = Column(DateTime, nullable=True)
+    note = Column(Text, nullable=True)               # begrundelse, fx "Lokal lønaftale"
     created_by = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 

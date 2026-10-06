@@ -169,3 +169,21 @@ def test_seed_keeps_current_rate_and_adds_history_and_future(db, monkeypatch):
     assert _rate(db, "EGU-elever", (date(2025, 1, 6), date(2025, 1, 19))) == Decimal("70.74")
     disp = db.query(MasterAgreementType).filter_by(name="Lærling (EUD) Disponentspecialet, sidste uddannelsestrin").one()
     assert _rate(db, disp.name, P_AFTER) == Decimal("130.86")
+
+
+def test_rate_alert_shows_reason_and_affected_employees(db, employee, future_2027):
+    from routers.agreement_rates_router import rate_alerts
+    future_2027.note = "Lærlingeoverenskomsten 2025-2028"
+    employee.agreement_type = LAST
+    db.commit()
+    lon = _user(db, "lon", ["payroll"])
+    r = rate_alerts(current_user=lon, db=db, today=date(2027, 2, 1))[0]["rates"][0]
+    assert (r["note"], r["employees"]) == ("Lærlingeoverenskomsten 2025-2028", ["Test Chauffør"])
+
+
+def test_reason_is_saved_and_logged(db, last_type):
+    from routers.agreement_rates_router import RateBody, create_rate
+    r = create_rate(RateBody(agreement_type_id=last_type.id, valid_from=date(2027, 3, 1), hourly_rate=123.34,
+                             note="  Lokal lønaftale  "), current_user=_user(db, "lon", ["stamdata"]), db=db)
+    assert r["note"] == "Lokal lønaftale"
+    assert "begrundelse: Lokal lønaftale" in db.query(AuditLog).one().details

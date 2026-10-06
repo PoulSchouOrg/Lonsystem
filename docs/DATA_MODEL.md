@@ -60,6 +60,7 @@ Satsskift pr. overenskomsttype. `master_agreement_types.hourly_rate` er altid sa
 | hourly_rate | NUMERIC(10,2) | Den nye sats |
 | old_rate | NUMERIC(10,2) NULL | Satsen før skiftet (sat når skiftet træder i kraft) – bruges til ældre lønperioder |
 | applied_at | DATETIME NULL | NULL = fremtidig (kan rettes/slettes); sat = historik (låst) |
+| note | TEXT NULL | Begrundelse, vises i Stamdata og i advarslen til lønbogholderen |
 | created_by, created_at | | |
 
 `user_alert_dismissals` (user_id, key) husker 'OK' på fælles advarsler, fx `rates_2027-03-01`.
