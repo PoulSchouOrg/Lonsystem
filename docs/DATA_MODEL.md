@@ -66,7 +66,7 @@ Lønbogholderens beslutning om et elevløn-trinskift.
 ### elev_step_claims (2026-10-06)
 Lås mens en lønbogholder behandler et trinskift ("Behandles af LB siden kl. 10.42"). Unik på (employee_id, event_date), så to samtidige godkendelser ikke kan lade sig gøre. Udløber efter 15 minutter.
 
-`system_settings` har desuden `elev_alerts_enabled` (advarsler starter først efter opstartstjekket i Elevoversigten), `elev_notice_days` (varsel, default 30) og `elev_remind_days` (påmind igen dage før, default 7, NULL = aldrig).
+Varsel (30 dage før lønperioden) og "påmind igen" (7 dage før) er faste standardværdier i denne version.
 Elevløn-popups afvises/udsættes pr. bruger i `paragraf_56_alert_dismissals` med `alert_type` `elevup_ÅÅÅÅ-MM-DD` (påmind igen), `elevno_ÅÅÅÅ-MM-DD` (påmind ikke igen) og `elevfx_<id>` (trådt i kraft, set).
 
 Mærkedagsadvarsler (jubilæum, elev slutter, rund fødselsdag – 2026-10-01) afvises pr. bruger i `paragraf_56_alert_dismissals` med `alert_type` = begivenheden (`jubilee_25`, `birthday_40`, `elev_ÅÅÅÅ-MM-DD`).

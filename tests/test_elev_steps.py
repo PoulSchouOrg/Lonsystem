@@ -80,8 +80,7 @@ def elev(db, employee):
     for name, rate in ((THIRD, 93.71), (SECOND, 105.75), (LAST, 119.17), ("Chauffør", 174.15),
                        ("EGU-elever", 70.74)):
         db.add(MasterAgreementType(name=name, hourly_rate=rate))
-    db.add(SystemSettings(id=1, auto_approval_enabled=True, elev_alerts_enabled=True,
-                          elev_notice_days=30, elev_remind_days=7))
+    db.add(SystemSettings(id=1, auto_approval_enabled=True))
     employee.elev, employee.elev_start_date, employee.elev_end_date = True, START, END
     employee.agreement_type = SECOND
     db.commit()
@@ -108,12 +107,10 @@ def test_upcoming_alert_starts_notice_days_before_period(db, elev, lon):
         "(lærekontrakten slutter 20. november 2027).")
 
 
-def test_no_popups_when_disabled_or_only_system_role(db, elev, lon):
+def test_no_popups_for_system_role(db, elev, lon):
     admin = _user(db, "admin", [], system=True)
     assert _alerts(db, admin, date(2026, 11, 1))["upcoming"] == []
-    db.get(SystemSettings, 1).elev_alerts_enabled = False
-    db.commit()
-    assert _alerts(db, lon, date(2026, 11, 1))["upcoming"] == []
+    assert len(_alerts(db, lon, date(2026, 11, 1))["upcoming"]) == 1      # ingen aktivering nødvendig
 
 
 def test_remind_later_and_never(db, elev, lon):
@@ -125,10 +122,10 @@ def test_remind_later_and_never(db, elev, lon):
     assert _alerts(db, lon, date(2026, 11, 12))["upcoming"] == []
 
 
-def test_remind_again_never_setting(db, elev, lon):
+def test_remind_again_never_setting(db, elev, lon, monkeypatch):
+    import routers.elev_router as r
     from routers.elev_router import SnoozeBody, snooze
-    db.get(SystemSettings, 1).elev_remind_days = None
-    db.commit()
+    monkeypatch.setattr(r, "notice_settings", lambda db, user: (30, None))
     snooze(SnoozeBody(employee_id=elev.id, event_date=EVENT, mode="later"), current_user=lon, db=db)
     assert _alerts(db, lon, date(2026, 11, 12))["upcoming"] == []
 
@@ -216,7 +213,6 @@ def test_cancel_scheduled_change(db, elev, lon):
 
 
 def test_voksenelev_and_egu_have_no_steps(db, elev, lon):
-    from routers.elev_router import overview
     elev.voksenelev = True
     elev.agreement_type = "Chauffør"
     db.commit()
@@ -225,26 +221,6 @@ def test_voksenelev_and_egu_have_no_steps(db, elev, lon):
     elev.agreement_type = "EGU-elever"
     db.commit()
     assert _alerts(db, lon, date(2026, 11, 20))["mismatches"] == []
-    rows = overview(current_user=lon, db=db, today=date(2026, 11, 20))["rows"]
-    assert rows[0]["status"] == "ingen_trin"
-
-
-def test_overview_marks_mismatch(db, elev, lon):
-    from routers.elev_router import overview
-    res = overview(current_user=lon, db=db, today=date(2026, 11, 20))
-    assert res["rows"][0]["status"] == "afviger"
-    assert res["missing_step_types"] == []
-    res = overview(current_user=lon, db=db, today=date(2026, 11, 1))
-    assert res["rows"][0]["status"] == "ok"
-    assert res["rows"][0]["next_change"]["effective_from"] == EFFECTIVE
-
-
-def test_settings_validation(db, elev, lon):
-    from routers.elev_router import SettingsBody, put_settings
-    with pytest.raises(HTTPException):
-        put_settings(SettingsBody(notice_days=7, remind_days=7), current_user=lon, db=db)
-    out = put_settings(SettingsBody(notice_days=21, remind_days=None), current_user=lon, db=db)
-    assert out["notice_days"] == 21 and out["remind_days"] is None
 
 
 def test_payroll_uses_type_for_the_period(db, elev, lon):

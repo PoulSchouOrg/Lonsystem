@@ -199,119 +199,6 @@ async function openElevDecision(s, onDone) {
   openModal("modal-elev-decision");
 }
 
-// ── Elevoversigt (opstartstjek + indstillinger) ─────────────────────────────
-const _ELEV_STATUS = {
-  ok: "&#10004; Passer",
-  afviger: '<span style="color:var(--danger)">&#10008; Afviger</span>',
-  voksenelev: "Voksenelev (almindelig løn)",
-  ingen_trin: "Ingen trin",
-  uden_for_kontrakt: "Uden for kontrakten",
-};
-
-async function openElevOverview() {
-  try {
-    await _elevLoadTypes();
-    const data = await GET("/api/elev/overview");
-    _elevState.settings = data.settings;
-    _elevState.overviewPeriodStart = data.period_start;
-    const m = _elevModal("modal-elev-overview", "Elevoversigt", 1000);
-    const s = data.settings;
-    const canEdit = _hasPerm("stamdata");
-    const rows = data.rows.map(r => {
-      const action = r.scheduled
-        ? `Planlagt: ${h(r.scheduled.to_type)} fra lønperioden ${dkPeriod(r.scheduled.effective_from, _elevAddDays(r.scheduled.effective_from, 13))}
-           <button class="btn btn-secondary" style="padding:2px 8px;font-size:12px" onclick="cancelElevDecision(${r.scheduled.id})">Annullér</button>`
-        : r.next_change
-          ? `${dkDate(r.next_change.event_date)} → ${h(r.next_change.to_type)}
-             <button class="btn btn-primary" style="padding:2px 8px;font-size:12px" onclick='_elevDecideFromRow(${JSON.stringify(r).replace(/'/g, "&#39;")}, "next")'>Behandl</button>`
-          : "";
-      const fix = r.status === "afviger"
-        ? ` <button class="btn btn-warning" style="padding:2px 8px;font-size:12px" onclick='_elevDecideFromRow(${JSON.stringify(r).replace(/'/g, "&#39;")}, "fix")'>Ret / behold</button>` : "";
-      return `<tr>
-        <td>${h(r.employee_name)}<br><span style="color:var(--text-light)">${h(r.employee_number)}</span></td>
-        <td>${dkDate(r.elev_start_date)} til ${dkDate(r.elev_end_date)}</td>
-        <td>${h(r.current_type)}${r.type_unknown ? ' <span style="color:var(--danger)">(findes ikke i Stamdata)</span>' : ""}</td>
-        <td>${h(r.expected_type || "–")}</td>
-        <td>${_ELEV_STATUS[r.status] || ""}${fix}</td>
-        <td>${action}</td></tr>`;
-    }).join("");
-    m.body.innerHTML = `
-      ${data.missing_step_types.length ? `<div class="alert-banner mb-16"><span class="icon">⚠️</span><div class="text">
-        Overenskomsttyper mangler i Stamdata: ${data.missing_step_types.map(h).join(", ")}</div></div>` : ""}
-      ${!s.enabled ? `<div class="alert-banner mb-16"><span class="icon">&#128270;</span><div class="text">
-        <h4>Gennemgå oversigten før advarslerne starter</h4>
-        Tjek at start-/slutdatoer og overenskomsttyper er rigtige. Ret afvigelser, og tryk så
-        "Oversigten er gennemgået".</div></div>` : ""}
-      <p style="font-size:13px;color:var(--text-light);margin-bottom:8px">
-        Aktuel lønperiode: ${dkPeriod(data.period_start, data.period_end)}.
-        Trinnet regnes baglæns fra slutdatoen; skifter eleven trin inde i en lønperiode, gælder den nye sats hele perioden.</p>
-      <table class="grid-table" style="width:100%;font-size:13px">
-        <thead><tr><th>Elev</th><th>Lærekontrakt</th><th>Overenskomsttype nu</th><th>Forventet</th><th>Status</th><th>Næste skift</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="6">Ingen aktive elever.</td></tr>'}</tbody>
-      </table>
-      <h3 style="font-size:14px;margin:16px 0 8px">Indstillinger for advarsler</h3>
-      <div class="form-row">
-        <div class="form-group"><label>Varsel (dage før lønperioden med skiftet)</label>
-          <input type="number" id="elev-set-notice" min="1" max="365" value="${s.notice_days}" ${canEdit ? "" : "disabled"}></div>
-        <div class="form-group"><label>Påmind igen (dage før)</label>
-          <select id="elev-set-remind-never" ${canEdit ? "" : "disabled"}>
-            <option value="days" ${s.remind_days != null ? "selected" : ""}>Antal dage</option>
-            <option value="never" ${s.remind_days == null ? "selected" : ""}>Aldrig</option></select>
-          <input type="number" id="elev-set-remind" min="0" max="365" value="${s.remind_days ?? 7}"
-                 ${canEdit ? "" : "disabled"} style="${s.remind_days == null ? "display:none" : ""}"></div>
-      </div>`;
-    m.footer.innerHTML = `
-      <button class="btn btn-secondary" onclick="closeModal('modal-elev-overview')">Luk</button>
-      ${canEdit ? '<button class="btn btn-secondary" id="elev-set-save">Gem indstillinger</button>' : ""}
-      ${!s.enabled && _hasPerm("elev_wage_approve") ? '<button class="btn btn-primary" id="elev-enable">Oversigten er gennemgået</button>' : ""}`;
-    const never = document.getElementById("elev-set-remind-never");
-    never.onchange = () => {
-      document.getElementById("elev-set-remind").style.display = never.value === "never" ? "none" : "";
-    };
-    const save = document.getElementById("elev-set-save");
-    if (save) save.onclick = async () => {
-      try {
-        await api("PUT", "/api/elev/settings", {
-          notice_days: parseInt(document.getElementById("elev-set-notice").value, 10),
-          remind_days: never.value === "never" ? null : parseInt(document.getElementById("elev-set-remind").value, 10),
-        });
-        toast("Indstillinger gemt");
-      } catch (e) { toast(e.message, "error"); }
-    };
-    const enable = document.getElementById("elev-enable");
-    if (enable) enable.onclick = async () => {
-      if (data.rows.some(r => r.status === "afviger") &&
-          !confirm("Der er stadig afvigelser. Start advarslerne alligevel?")) return;
-      await POST("/api/elev/enable", {});
-      toast("Elevløn-advarsler er slået til");
-      openElevOverview();
-    };
-    openModal("modal-elev-overview");
-  } catch (e) { toast(e.message, "error"); }
-}
-
-function _elevDecideFromRow(r, mode) {
-  const s = mode === "fix"
-    ? { employee_id: r.employee_id, employee_name: r.employee_name,
-        event_date: r.expected_event_date,
-        reason: r.mismatch_reason, effective_from: r.suggested_from, locked_periods: r.locked_periods,
-        from_type: r.current_type, to_type: r.expected_type }
-    : { employee_id: r.employee_id, employee_name: r.employee_name, event_date: r.next_change.event_date,
-        reason: `${r.employee_name} går ind i et nyt år af sin lærekontrakt den ${dkDate(r.next_change.event_date)}.`,
-        from_type: r.current_type, to_type: r.next_change.to_type, effective_from: r.next_change.effective_from };
-  if (!s.effective_from) s.effective_from = _elevState.overviewPeriodStart || new Date().toISOString().slice(0, 10);
-  openElevDecision(s, openElevOverview);
-}
-
-async function cancelElevDecision(id) {
-  if (!confirm("Annullér den planlagte ændring?")) return;
-  try {
-    await DEL(`/api/elev/decisions/${id}`);
-    toast("Ændringen er annulleret");
-    openElevOverview();
-  } catch (e) { toast(e.message, "error"); }
-}
-
 // ── Lønkørsel: mulige fejl ──────────────────────────────────────────────────
 function renderElevWarnings(container, warnings) {
   if (!warnings || !warnings.length) return;
@@ -319,8 +206,7 @@ function renderElevWarnings(container, warnings) {
   el.className = "alert-banner mb-16";
   el.innerHTML = `<span class="icon">⚠️</span><div class="text"><h4>Mulig fejl i elevløn (${warnings.length})</h4>
     ${warnings.map(w => h(w.reason) + (w.locked_periods || []).map(l => "<br>&#128274; " + h(l.text)).join("")).join("<br>")}
-    <br><a href="#" onclick="openElevOverview();return false">Åbn elevoversigten</a> for at rette eller bevare satsen.
-    Eksporten er ikke blokeret.</div>`;
+    <br>Ret eller bevar satsen via "Behandl" i advarslen. Eksporten er ikke blokeret.</div>`;
   container.appendChild(el);
 }
 

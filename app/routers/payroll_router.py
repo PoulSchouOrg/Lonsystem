@@ -940,10 +940,6 @@ def payroll_preview(period_start: Optional[str] = None,
 
 def _elev_warnings(period, db: Session) -> list:
     """Mulige fejl i elevløn-trin for perioden (vises i Lønkørsel, blokerer ikke eksport)."""
-    from database.models import SystemSettings
-    s = db.query(SystemSettings).filter(SystemSettings.id == 1).first()
-    if not s or not s.elev_alerts_enabled:
-        return []
     from calculators.elev_agreement import mismatches
     return mismatches(db, date.today(), [period.start_date])
 

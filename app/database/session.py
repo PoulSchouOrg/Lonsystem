@@ -296,15 +296,6 @@ def _migrate():
             "ON employee_supplements(employee_id)"
         )
         conn.commit()
-        set_cols = {row[1] for row in conn.execute("PRAGMA table_info(system_settings)")}
-        for col, ddl in (
-            ("elev_alerts_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
-            ("elev_notice_days", "INTEGER NOT NULL DEFAULT 30"),
-            ("elev_remind_days", "INTEGER DEFAULT 7"),
-        ):
-            if set_cols and col not in set_cols:
-                conn.execute(f"ALTER TABLE system_settings ADD COLUMN {col} {ddl}")
-                conn.commit()
         sup_cols2 = {row[1] for row in conn.execute("PRAGMA table_info(employee_supplements)")}
         if "deactivated_at" not in sup_cols2:
             conn.execute("ALTER TABLE employee_supplements ADD COLUMN deactivated_at DATETIME")
