@@ -194,6 +194,7 @@ async function openElevDecision(s, onDone) {
     if (onDone) onDone();
   };
   m.el.querySelector(".modal-close").onclick = document.getElementById("elev-dec-cancel").onclick;
+  m.el._onClose = document.getElementById("elev-dec-cancel").onclick;   // klik udenfor = Annullér (frigiver låsen)
   document.getElementById("elev-dec-keep").onclick = () => send("keep");
   document.getElementById("elev-dec-approve").onclick = () => send("approve");
   openModal("modal-elev-decision");
