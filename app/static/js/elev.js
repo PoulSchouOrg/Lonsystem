@@ -39,7 +39,7 @@ function _elevModal(id, title, width = 520) {
         <div class="modal-header"><h2></h2>
           <button class="modal-close" onclick="closeModal('${id}')">&#215;</button></div>
         <div class="modal-body"></div>
-        <div class="modal-footer"></div>
+        <div class="modal-footer" style="flex-wrap:wrap"></div>
       </div>`;
     document.body.appendChild(el);
   }
@@ -78,7 +78,7 @@ function _elevShowAlert(queue, i) {
     upcoming: "&#127891; Elev går ind i nyt år af lærekontrakten",
     applied:  "&#127891; Ny elevløn er trådt i kraft",
   };
-  const m = _elevModal("modal-elev-alert", titles[a.kind], 500);
+  const m = _elevModal("modal-elev-alert", titles[a.kind], 600);
   const more = queue.length - i - 1;
   let text = "";
   if (a.kind === "mismatch") {

@@ -134,7 +134,7 @@ def overview(current_user: AppUser = Depends(_view_access), db: Session = Depend
                 row["expected_event_date"] = step_event_date(emp, step)
                 row["status"] = "ok" if current_type == row["expected_type"] else "afviger"
                 if row["status"] == "afviger":
-                    row["mismatch_reason"] = mismatch_reason(emp, step, current_type, p_start, today)
+                    row["mismatch_reason"] = mismatch_reason(emp, step, current_type, p_start, today, db)
                     effective = period_start_for_date(row["expected_event_date"] or p_start)
                     row["suggested_from"] = first_open_period(db, effective)
                     row["locked_periods"] = locked_backpay(db, emp, effective, row["suggested_from"],

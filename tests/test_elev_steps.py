@@ -102,7 +102,10 @@ def test_upcoming_alert_starts_notice_days_before_period(db, elev, lon):
     assert _alerts(db, lon, date(2026, 10, 16))["upcoming"] == []
     up = _alerts(db, lon, date(2026, 10, 17))["upcoming"]
     assert [(u["event_date"], u["effective_from"], u["to_type"]) for u in up] == [(EVENT, EFFECTIVE, LAST)]
-    assert "går fra næstsidste ind i sidste år af sin lærekontrakt den 21. november 2026 (lærekontrakten slutter 20. november 2027). Den nye sats gælder fra lønperioden 16. november til 29. november 2026." in up[0]["reason"]
+    assert up[0]["reason"] == (
+        "Fra lønperioden 16. november til 29. november 2026 stiger Test Chaufførs timesats fra 105,75 kr til "
+        "119,17 kr, fordi Test går fra næstsidste ind i sidste år af sin lærekontrakt den 21. november 2026 "
+        "(lærekontrakten slutter 20. november 2027).")
 
 
 def test_no_popups_when_disabled_or_only_system_role(db, elev, lon):
@@ -172,7 +175,8 @@ def test_mismatch_until_fixed_or_kept_with_note(db, elev, lon):
     assert mm[0]["reason"] == (
         "Test Chauffør går ind i sidste år af sin lærekontrakt den 21. november 2026 (lærekontrakten slutter "
         "20. november 2027). "
-        f"Den nye sats gælder fra lønperioden 16. november til 29. november 2026, men er overenskomsttypen stadig '{SECOND}'.")
+        f"Den nye sats gælder fra lønperioden 16. november til 29. november 2026, men er overenskomsttypen stadig '{SECOND}'. "
+        "Timesatsen er 105,75 kr – den skulle være 119,17 kr.")
     later = _alerts(db, lon, date(2026, 12, 1))["mismatches"]       # perioden der lige er slut tjekkes også
     assert [(m["period_start"], m["suggested_from"], m["locked_periods"]) for m in later] == [(EFFECTIVE, EFFECTIVE, [])]
     with pytest.raises(HTTPException):

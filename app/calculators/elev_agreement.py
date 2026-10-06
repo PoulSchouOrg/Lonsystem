@@ -79,11 +79,28 @@ def apply_due_changes(db: Session, today: date, log=None) -> list:
     return applied
 
 
-def _reason(emp: Employee, when: date, from_step: str, to_step: str) -> str:
-    return (f"{emp.name} går fra {STEP_LABELS[from_step]} ind i {STEP_LABELS[to_step]} "
-            f"år af sin lærekontrakt den {dk_date(when)} (lærekontrakten slutter {dk_date(emp.elev_end_date)}). "
-            f"Den nye sats gælder fra lønperioden "
-            f"{dk_period(period_start_for_date(when), period_start_for_date(when) + timedelta(days=PERIOD_DAYS - 1))}.")
+def rate_for(db: Session, type_name: str, period_start: date) -> Optional[float]:
+    """Timesatsen for typen i lønperioden (til beskederne)."""
+    from calculators.rates_loader import load_agreement_types_from_db
+    rate = load_agreement_types_from_db(db).get(type_name)
+    return float(rate) if rate is not None else None
+
+
+def _kr(v: Optional[float]) -> str:
+    return "?" if v is None else f"{v:,.2f} kr".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _reason(db: Session, emp: Employee, when: date, from_step: str, to_step: str) -> str:
+    """Fx: 'Fra lønperioden 2. november til 15. november 2026 stiger Nanna Elevsens timesats fra
+    105,75 kr til 119,17 kr, fordi Nanna går fra næstsidste ind i sidste år af sin lærekontrakt
+    den 6. november 2026 (lærekontrakten slutter 5. november 2027).'"""
+    p_start = period_start_for_date(when)
+    old = rate_for(db, STEP_AGREEMENT_TYPES[from_step], p_start)
+    new = rate_for(db, STEP_AGREEMENT_TYPES[to_step], p_start)
+    return (f"Fra lønperioden {dk_period(p_start, p_start + timedelta(days=PERIOD_DAYS - 1))} stiger "
+            f"{emp.name}s timesats fra {_kr(old)} til {_kr(new)}, fordi {emp.first_name} går fra "
+            f"{STEP_LABELS[from_step]} ind i {STEP_LABELS[to_step]} år af sin lærekontrakt den {dk_date(when)} "
+            f"(lærekontrakten slutter {dk_date(emp.elev_end_date)}).")
 
 
 def upcoming_changes(db: Session, emp: Employee, today: date) -> list:
@@ -102,7 +119,7 @@ def upcoming_changes(db: Session, emp: Employee, today: date) -> list:
             "event_date": when, "effective_from": effective,
             "effective_to": effective + timedelta(days=PERIOD_DAYS - 1),
             "from_type": emp.agreement_type, "to_type": STEP_AGREEMENT_TYPES[to_step],
-            "reason": _reason(emp, when, from_step, to_step),
+            "reason": _reason(db, emp, when, from_step, to_step),
         })
     return out
 
@@ -231,13 +248,14 @@ def mismatches(db: Session, today: date, period_starts: Optional[list] = None) -
                 "suggested_from": suggested,
                 "current_type": actual, "expected_type": expected,
                 "locked_periods": locked_backpay(db, emp, effective, suggested, expected),
-                "reason": mismatch_reason(emp, step, actual, p_start, today),
+                "reason": mismatch_reason(emp, step, actual, p_start, today, db),
             })
             break
     return out
 
 
-def mismatch_reason(emp: Employee, step: str, actual: str, period_start: date, today: date) -> str:
+def mismatch_reason(emp: Employee, step: str, actual: str, period_start: date, today: date,
+                    db: Optional[Session] = None) -> str:
     """Fx: 'Jonas Elevsen gik ind i sidste år af sin lærekontrakt den 27. september 2026
     (lærekontrakten slutter 26. september 2027). Den nye sats gælder fra lønperioden 21. september
     til 4. oktober 2026, men i lønperioden 5. oktober til 18. oktober 2026 er overenskomsttypen stadig '...'.'"""
@@ -257,6 +275,9 @@ def mismatch_reason(emp: Employee, step: str, actual: str, period_start: date, t
         if effective != period_start:
             text += f" i lønperioden {dk_period(period_start, p_end)}"
         text += f" er overenskomsttypen stadig '{actual}'."
+        if db is not None:
+            text += (f" Timesatsen er {_kr(rate_for(db, actual, period_start))} – den skulle være "
+                     f"{_kr(rate_for(db, STEP_AGREEMENT_TYPES[step], period_start))}.")
     else:
         text += f" Overenskomsttypen er '{actual}'."
     return text
