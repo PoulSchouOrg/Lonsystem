@@ -5,6 +5,19 @@
 const _elevState = { types: [], rateByType: {}, settings: null };
 
 function _elevDk(iso) { return iso ? formatDateShort(iso) : "–"; }
+// Datoer skrevet ud i tekst, så de ikke ligner klokkeslæt: "21. september til 4. oktober 2026"
+const _DK_MONTHS = ["januar", "februar", "marts", "april", "maj", "juni", "juli", "august",
+                    "september", "oktober", "november", "december"];
+function dkDate(iso) {
+  if (!iso) return "–";
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  return `${d}. ${_DK_MONTHS[m - 1]} ${y}`;
+}
+function dkPeriod(startIso, endIso) {
+  const [y1, m1, d1] = startIso.slice(0, 10).split("-").map(Number);
+  const y2 = Number(endIso.slice(0, 4));
+  return `${d1}. ${_DK_MONTHS[m1 - 1]}${y1 !== y2 ? " " + y1 : ""} til ${dkDate(endIso)}`;
+}
 function _elevAddDays(iso, days) {
   const d = new Date(iso + "T12:00:00");
   d.setDate(d.getDate() + days);
@@ -74,11 +87,11 @@ function _elevShowAlert(queue, i) {
   } else if (a.kind === "upcoming") {
     text = `<p style="font-size:14px;margin-bottom:8px">${h(a.reason)}</p>
       <p style="font-size:13px;color:var(--text-light)">Foreslået: <strong>${h(a.to_type)}</strong>${_elevRate(a.to_type)}
-      for hele lønperioden ${_elevDk(a.effective_from)} – ${_elevDk(a.effective_to)}.</p>`;
+      for hele lønperioden ${dkPeriod(a.effective_from, a.effective_to)}.</p>`;
   } else {
     text = a.took_effect
       ? `<p style="font-size:14px"><strong>${h(a.employee_name)}</strong> har nu <strong>${h(a.to_type)}</strong>${_elevRate(a.to_type)}
-         fra lønperioden ${_elevDk(a.effective_from)} – ${_elevDk(a.effective_to)}.</p>`
+         fra lønperioden ${dkPeriod(a.effective_from, a.effective_to)}.</p>`
       : `<p style="font-size:14px">Skiftet for <strong>${h(a.employee_name)}</strong> til <strong>${h(a.to_type)}</strong>
          blev ikke anvendt, fordi overenskomsttypen er ændret manuelt. Tjek medarbejderen.</p>`;
   }
@@ -137,7 +150,7 @@ async function openElevDecision(s, onDone) {
         `<option value="${h(t)}" ${t === s.to_type ? "selected" : ""}>${h(t)}${_elevRate(t)}</option>`).join("")}</select></div>
     <div class="form-group"><label>Gælder fra lønperioden (hele perioden)</label>
       <select id="elev-dec-period">${periods.map(p =>
-        `<option value="${p}">${_elevDk(p)} – ${_elevDk(_elevAddDays(p, 13))}</option>`).join("")}</select></div>
+        `<option value="${p}">${dkPeriod(p, _elevAddDays(p, 13))}</option>`).join("")}</select></div>
     <div class="form-group"><label>Bemærkning (påkrævet ved "Behold nuværende")</label>
       <textarea id="elev-dec-note" rows="2" style="width:100%"></textarea></div>`;
   m.footer.innerHTML = `
@@ -185,17 +198,17 @@ async function openElevOverview() {
     const canEdit = _hasPerm("stamdata");
     const rows = data.rows.map(r => {
       const action = r.scheduled
-        ? `Planlagt: ${h(r.scheduled.to_type)} fra ${_elevDk(r.scheduled.effective_from)}
+        ? `Planlagt: ${h(r.scheduled.to_type)} fra lønperioden ${dkPeriod(r.scheduled.effective_from, _elevAddDays(r.scheduled.effective_from, 13))}
            <button class="btn btn-secondary" style="padding:2px 8px;font-size:12px" onclick="cancelElevDecision(${r.scheduled.id})">Annullér</button>`
         : r.next_change
-          ? `${_elevDk(r.next_change.event_date)} → ${h(r.next_change.to_type)}
+          ? `${dkDate(r.next_change.event_date)} → ${h(r.next_change.to_type)}
              <button class="btn btn-primary" style="padding:2px 8px;font-size:12px" onclick='_elevDecideFromRow(${JSON.stringify(r).replace(/'/g, "&#39;")}, "next")'>Behandl</button>`
           : "";
       const fix = r.status === "afviger"
         ? ` <button class="btn btn-warning" style="padding:2px 8px;font-size:12px" onclick='_elevDecideFromRow(${JSON.stringify(r).replace(/'/g, "&#39;")}, "fix")'>Ret / behold</button>` : "";
       return `<tr>
         <td>${h(r.employee_name)}<br><span style="color:var(--text-light)">${h(r.employee_number)}</span></td>
-        <td>${_elevDk(r.elev_start_date)} – ${_elevDk(r.elev_end_date)}</td>
+        <td>${dkDate(r.elev_start_date)} til ${dkDate(r.elev_end_date)}</td>
         <td>${h(r.current_type)}${r.type_unknown ? ' <span style="color:var(--danger)">(findes ikke i Stamdata)</span>' : ""}</td>
         <td>${h(r.expected_type || "–")}</td>
         <td>${_ELEV_STATUS[r.status] || ""}${fix}</td>
@@ -209,7 +222,7 @@ async function openElevOverview() {
         Tjek at start-/slutdatoer og overenskomsttyper er rigtige. Ret afvigelser, og tryk så
         "Oversigten er gennemgået".</div></div>` : ""}
       <p style="font-size:13px;color:var(--text-light);margin-bottom:8px">
-        Aktuel lønperiode ${_elevDk(data.period_start)} – ${_elevDk(data.period_end)}.
+        Aktuel lønperiode: ${dkPeriod(data.period_start, data.period_end)}.
         Trinnet regnes baglæns fra slutdatoen; skifter eleven trin inde i en lønperiode, gælder den nye sats hele perioden.</p>
       <table class="grid-table" style="width:100%;font-size:13px">
         <thead><tr><th>Elev</th><th>Lærekontrakt</th><th>Overenskomsttype nu</th><th>Forventet</th><th>Status</th><th>Næste skift</th></tr></thead>
@@ -263,7 +276,7 @@ function _elevDecideFromRow(r, mode) {
         reason: r.mismatch_reason,
         from_type: r.current_type, to_type: r.expected_type }
     : { employee_id: r.employee_id, employee_name: r.employee_name, event_date: r.next_change.event_date,
-        reason: `${r.employee_name} går ind i et nyt år af sin lærekontrakt den ${_elevDk(r.next_change.event_date)}.`,
+        reason: `${r.employee_name} går ind i et nyt år af sin lærekontrakt den ${dkDate(r.next_change.event_date)}.`,
         from_type: r.current_type, to_type: r.next_change.to_type, effective_from: r.next_change.effective_from };
   if (!s.effective_from) s.effective_from = _elevState.overviewPeriodStart || new Date().toISOString().slice(0, 10);
   openElevDecision(s, openElevOverview);

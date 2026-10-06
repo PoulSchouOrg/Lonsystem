@@ -52,6 +52,13 @@ def test_change_inside_period_counts_for_whole_period():
     assert step_for_period(START, END, date(2026, 11, 2), date(2026, 11, 15)) == STEP_SECOND_LAST
 
 
+def test_dates_written_out_in_danish():
+    from calculators.elev_steps import dk_date, dk_period
+    assert dk_date(date(2026, 9, 27)) == "27. september 2026"
+    assert dk_period(date(2026, 9, 21), date(2026, 10, 4)) == "21. september til 4. oktober 2026"
+    assert dk_period(date(2026, 12, 28), date(2027, 1, 10)) == "28. december 2026 til 10. januar 2027"
+
+
 def test_change_on_contract_start_is_not_a_change():
     changes = step_changes(date(2025, 12, 1), END)
     assert [(c[0], c[2]) for c in changes] == [(EVENT, STEP_LAST)]
@@ -95,7 +102,7 @@ def test_upcoming_alert_starts_notice_days_before_period(db, elev, lon):
     assert _alerts(db, lon, date(2026, 10, 16))["upcoming"] == []
     up = _alerts(db, lon, date(2026, 10, 17))["upcoming"]
     assert [(u["event_date"], u["effective_from"], u["to_type"]) for u in up] == [(EVENT, EFFECTIVE, LAST)]
-    assert "går fra næstsidste ind i sidste år af sin lærekontrakt den 21.11.2026" in up[0]["reason"]
+    assert "går fra næstsidste ind i sidste år af sin lærekontrakt den 21. november 2026" in up[0]["reason"]
 
 
 def test_no_popups_when_disabled_or_only_system_role(db, elev, lon):
@@ -163,10 +170,11 @@ def test_mismatch_until_fixed_or_kept_with_note(db, elev, lon):
     mm = _alerts(db, lon, today)["mismatches"]
     assert [(m["period_start"], m["current_type"], m["expected_type"]) for m in mm] == [(EFFECTIVE, SECOND, LAST)]
     assert mm[0]["reason"] == (
-        "Test Chauffør går ind i sidste år af sin lærekontrakt den 21.11.2026 (lærekontrakten slutter 20.11.2027). "
-        f"Den nye sats gælder fra lønperioden 16.11.–29.11.2026, men er overenskomsttypen stadig '{SECOND}'.")
+        "Test Chauffør går ind i sidste år af sin lærekontrakt den 21. november 2026 (lærekontrakten slutter "
+        "20. november 2027). "
+        f"Den nye sats gælder fra lønperioden 16. november til 29. november 2026, men er overenskomsttypen stadig '{SECOND}'.")
     later = _alerts(db, lon, date(2026, 12, 1))["mismatches"]       # næste periode, stadig ikke rettet
-    assert "men i lønperioden 30.11.–13.12.2026 er overenskomsttypen stadig" in later[-1]["reason"]
+    assert "men i lønperioden 30. november til 13. december 2026 er overenskomsttypen stadig" in later[-1]["reason"]
     with pytest.raises(HTTPException):
         create_decision(DecisionBody(employee_id=elev.id, event_date=EVENT, decision="keep", to_type=LAST),
                         current_user=lon, db=db, today=today)

@@ -32,6 +32,21 @@ STEP_LABELS = {
 }
 
 
+_MONTHS = ("januar", "februar", "marts", "april", "maj", "juni", "juli", "august",
+           "september", "oktober", "november", "december")
+
+
+def dk_date(d: date) -> str:
+    """27. september 2026"""
+    return f"{d.day}. {_MONTHS[d.month - 1]} {d.year}"
+
+
+def dk_period(start: date, end: date) -> str:
+    """21. september til 4. oktober 2026 (året kun én gang, medmindre perioden krydser nytår)."""
+    first = f"{start.day}. {_MONTHS[start.month - 1]}" + (f" {start.year}" if start.year != end.year else "")
+    return f"{first} til {dk_date(end)}"
+
+
 def _years_before(d: date, years: int) -> date:
     return date(d.year - years, d.month, min(d.day, calendar.monthrange(d.year - years, d.month)[1]))
 
