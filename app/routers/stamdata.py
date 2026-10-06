@@ -49,6 +49,9 @@ def list_agreement_types(
     current_user: AppUser = Depends(_access),
     db: Session = Depends(get_db),
 ):
+    from datetime import date
+    from calculators.agreement_rates import apply_due_rates
+    apply_due_rates(db, date.today())   # fremtidige satser hvis dato er nået
     rows = db.query(MasterAgreementType).order_by(MasterAgreementType.name).all()
     return [{"id": r.id, "name": r.name, "hourly_rate": float(r.hourly_rate)} for r in rows]
 
@@ -83,6 +86,7 @@ def update_agreement_type(
     row = db.query(MasterAgreementType).filter(MasterAgreementType.id == agreement_id).first()
     if not row:
         raise HTTPException(404, "Ikke fundet")
+    old_name_before = row.name
     if body.name is not None:
         conflict = db.query(MasterAgreementType).filter(
             MasterAgreementType.name == body.name.strip(),
@@ -91,11 +95,13 @@ def update_agreement_type(
         if conflict:
             raise HTTPException(400, "Et andet overenskomsttype med dette navn eksisterer allerede")
         row.name = body.name.strip()
+    old_name, old_rate = old_name_before, row.hourly_rate
     if body.hourly_rate is not None:
         row.hourly_rate = Decimal(str(body.hourly_rate))
     db.commit()
     log_action(db, current_user, "stamdata_update", "agreement_type", row.id,
-               f"Opdateret overenskomsttype: {row.name}")
+               f"Opdateret overenskomsttype: '{old_name}' {Decimal(str(old_rate)):.2f} kr → "
+               f"'{row.name}' {Decimal(str(row.hourly_rate)):.2f} kr")
     db.commit()
     return {"id": row.id, "name": row.name, "hourly_rate": float(row.hourly_rate)}
 
@@ -118,8 +124,16 @@ def delete_agreement_type(
             400,
             f"Kan ikke slettes – {in_use} aktiv(e) medarbejder(e) bruger denne overenskomsttype",
         )
+    from database.models import MasterAgreementTypeRate
+    rates = db.query(MasterAgreementTypeRate).filter(MasterAgreementTypeRate.agreement_type_id == row.id).all()
+    if any(r.applied_at is None for r in rates):
+        raise HTTPException(400, "Kan ikke slettes – typen har fremtidige satser. Slet dem først.")
+    history = ", ".join(f"{r.valid_from}: {Decimal(str(r.hourly_rate)):.2f}" for r in rates)
     log_action(db, current_user, "stamdata_delete", "agreement_type", row.id,
-               f"Slettet overenskomsttype: {row.name}")
+               f"Slettet overenskomsttype: '{row.name}' ({Decimal(str(row.hourly_rate)):.2f} kr)"
+               + (f". Sats-historik: {history}" if history else ""))
+    for r in rates:
+        db.delete(r)
     db.delete(row)
     db.commit()
 

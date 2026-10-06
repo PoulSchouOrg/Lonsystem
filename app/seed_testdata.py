@@ -223,6 +223,18 @@ for nr, fn, ln, agreement, end, voksen in ELEVER:
     created += 1
     print(f"Oprettet elev: {nr} {fn} {ln} ({agreement}, slut {end})")
 
+# ── Demo: generel satsstigning fra den 1. i næste måned (2026-10-06) ─────────
+from database.models import MasterAgreementType, MasterAgreementTypeRate
+_next_month = (TODAY.replace(day=1) + timedelta(days=32)).replace(day=1)
+_chauffoer = db.query(MasterAgreementType).filter(MasterAgreementType.name == "Chauffør").first()
+if _chauffoer and not db.query(MasterAgreementTypeRate).filter(
+        MasterAgreementTypeRate.agreement_type_id == _chauffoer.id,
+        MasterAgreementTypeRate.valid_from == _next_month).first():
+    db.add(MasterAgreementTypeRate(agreement_type_id=_chauffoer.id, valid_from=_next_month,
+                                   hourly_rate=_chauffoer.hourly_rate + 3, created_by="TEST",
+                                   note="Lokal lønaftale 2026 (fiktivt eksempel)"))
+    print(f"Oprettet demo-sats: Chauffør {_chauffoer.hourly_rate + 3} kr fra {_next_month}")
+
 db.commit()
 db.close()
 print(f"\n{created} testmedarbejdere oprettet (aktiviteter i perioden 1/6-14/6 2026).")

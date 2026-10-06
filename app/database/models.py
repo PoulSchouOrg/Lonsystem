@@ -440,6 +440,40 @@ class MasterAgreementType(Base):
     hourly_rate = Column(Numeric(10, 2), nullable=False)
 
 
+class MasterAgreementTypeRate(Base):
+    """Sats for en overenskomsttype fra en bestemt dato (2026-10-06). Fremtidige rækker
+    træder i kraft automatisk; old_rate gemmes så ældre lønperioder regnes rigtigt."""
+    __tablename__ = "master_agreement_type_rates"
+
+    id = Column(Integer, primary_key=True)
+    agreement_type_id = Column(Integer, ForeignKey("master_agreement_types.id"), nullable=False, index=True)
+    valid_from = Column(Date, nullable=False)
+    hourly_rate = Column(Numeric(10, 2), nullable=False)
+    old_rate = Column(Numeric(10, 2), nullable=True)
+    applied_at = Column(DateTime, nullable=True)
+    note = Column(Text, nullable=True)               # begrundelse, fx "Lokal lønaftale"
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    agreement_type = relationship("MasterAgreementType")
+
+    __table_args__ = (
+        UniqueConstraint("agreement_type_id", "valid_from", name="uq_agreement_type_rate_date"),
+    )
+
+
+class UserAlertDismissal(Base):
+    """'OK' på en fælles advarsel (fx nye overenskomstsatser) – pr. bruger."""
+    __tablename__ = "user_alert_dismissals"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("app_users.id"), nullable=False)
+    key = Column(String(50), nullable=False)
+    dismissed_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_user_alert_dismissal"),)
+
+
 class MasterAgreementKind(Base):
     __tablename__ = "master_agreement_kinds"
 

@@ -50,6 +50,21 @@ Nye aftaletyper kan tilføjes via Stamdata (`master_agreement_kinds`-tabellen); 
 
 Anciennitet beregnes automatisk fra `hire_date`. Pop-up ved 9 måneder hvis `anciennitet_dismissed_at` er tom (se `anciennitet_alert`-tilladelsen).
 
+### master_agreement_type_rates (2026-10-06)
+Satsskift pr. overenskomsttype. `master_agreement_types.hourly_rate` er altid satsen der gælder nu.
+
+| Kolonne | Type | Beskrivelse |
+|---|---|---|
+| agreement_type_id | INTEGER FK | Overenskomsttypen |
+| valid_from | DATE | Gælder fra (unik pr. type) |
+| hourly_rate | NUMERIC(10,2) | Den nye sats |
+| old_rate | NUMERIC(10,2) NULL | Satsen før skiftet (sat når skiftet træder i kraft) – bruges til ældre lønperioder |
+| applied_at | DATETIME NULL | NULL = fremtidig (kan rettes/slettes); sat = historik (låst) |
+| note | TEXT NULL | Begrundelse, vises i Stamdata og i advarslen til lønbogholderen |
+| created_by, created_at | | |
+
+`user_alert_dismissals` (user_id, key) husker 'OK' på fælles advarsler, fx `rates_2027-03-01`.
+
 ### elev_step_decisions (2026-10-06)
 Lønbogholderens beslutning om et elevløn-trinskift.
 

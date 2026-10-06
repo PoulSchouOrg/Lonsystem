@@ -86,6 +86,14 @@ Se `DATA_MODEL.md` for tabelstruktur og `CODEREF.md` for implementeringsdetaljer
 
 ---
 
+## Daterede satser (fra 2026-10-06)
+- Fremtidige satser lægges ind i Stamdata › Overenskomsttyper › *Fremtidige satser* (type, ny timesats, gælder fra).
+- Satsen for en lønperiode er satsen der gælder på periodens **sidste dag**: ligger datoen inde i perioden, får hele perioden den nye sats (fx 1/3-2027 → perioden 22/2–7/3-2027).
+- Når datoen nås, bliver den nye sats typens nuværende sats; den gamle gemmes, så ældre perioder regnes uændret.
+- Fremtidige satser kan rettes og slettes (logges med alle værdier); satser der er trådt i kraft er låst historik.
+- Roller med *Lønkørsel* sat eksplicit får en popup X dage før lønperioden med de nye satser (samme varsel som elevløn).
+- Lærlingeoverenskomstens satser (lærlinge, disponentspecialet, EGU) for 1/5-2025, 1/3-2026 og 1/3-2027 er lagt ind én gang ved opstart.
+
 ## Elevløn-trin (Lærlingeoverenskomsten 2025-2028 § 8, fra 2026-10-06)
 - EUD-lærlinge lønnes efter år af lærekontrakten, regnet **baglæns** fra slutdatoen: sidste år, næstsidste år, tredjesidste år. Alt før tredjesidste år får tredjesidste-satsen (overenskomsten har ikke flere trin).
 - Skifter eleven trin inde i en lønperiode, gælder den nye sats **hele lønperioden**.

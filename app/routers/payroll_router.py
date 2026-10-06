@@ -40,12 +40,12 @@ from calculators.day_type import (
     compute_sh_hours,
     calculate_special_day_overtime,
 )
+from calculators.agreement_rates import agreement_rate_for_period, apply_due_rates
 from calculators.elev_agreement import agreement_type_for_period
 from calculators.pay_period import get_or_create_period_for_date, is_even_week, period_start_for_date
 from calculators.vehicle_uses import clipped_vehicle_uses, vehicle_assignment_intervals
 import logging as _logging
 from calculators.rates_loader import (
-    load_agreement_types_from_db,
     load_overtime_rates_from_db,
     load_salt_supplement_rate_from_db,
     load_overnight_rate_from_db,
@@ -332,7 +332,8 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session,
         # Elevløn-trin: et godkendt skift gælder fra en lønperiodes start (hele perioden)
         # agreement_type angives kun ved efterregulering ("hvad hvis typen havde været rigtig")
         agreement_type = agreement_type or agreement_type_for_period(db, emp, period_start_for_date(start))
-        base_hourly_rate = load_agreement_types_from_db(db).get(agreement_type, Decimal("0"))
+        # Daterede satser (2026-10-06): satsen der gælder på periodens sidste dag
+        base_hourly_rate = agreement_rate_for_period(db, agreement_type, start, end)
     except Exception as e:
         _logging.error(f"Timeløn kunne ikke indlæses for {emp.first_name} {emp.last_name} (id={emp.id}): {e}")
         raise HTTPException(500, f"Timeløn kunne ikke indlæses for {emp.first_name} {emp.last_name} – kontakt administrator")
@@ -921,6 +922,7 @@ def payroll_preview(period_start: Optional[str] = None,
                     current_user: AppUser = Depends(_payroll_access),
                     db: Session = Depends(get_db)):
     period = _resolve_period(period_start, db)
+    apply_due_rates(db, date.today())
     employees = _active_employees(db)
     results = [_calculate_employee(e, period.start_date, period.end_date, db) for e in employees]
     # 'I alt' pr. medarbejder regnes præcis som i Lønafregning (bekræftet af

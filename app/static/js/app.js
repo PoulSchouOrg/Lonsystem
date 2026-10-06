@@ -5782,6 +5782,7 @@ async function loadStamdataAgreementTypes() {
       tbody.innerHTML = `<tr><td colspan="3" style="padding:20px;text-align:center;color:var(--text-light)">Ingen overenskomsttyper oprettet endnu</td></tr>`;
       return;
     }
+    loadFutureRates();   // static/js/agreement_rates.js
     tbody.innerHTML = rows.map((r, i) => `
       <tr style="border-bottom:1px solid var(--border);background:${i % 2 === 0 ? "#fff" : "var(--bg)"}">
         <td style="padding:10px 14px">${h(r.name)}</td>
@@ -6910,6 +6911,7 @@ async function loadApp() {
   await checkParagraf56Alerts();
   await checkMilestoneAlerts();
   await checkElevAlerts();   // static/js/elev.js
+  await checkRateAlerts();   // static/js/agreement_rates.js
 }
 
 // Første menupunkt brugeren har adgang til – Aktiviteter hvis 'Se aktivitetskalender',
