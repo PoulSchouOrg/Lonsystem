@@ -86,8 +86,7 @@ function _elevShowAlert(queue, i) {
       <p style="font-size:13px;color:var(--text-light)">Forventet: <strong>${h(a.expected_type)}</strong>${_elevRate(a.expected_type)}</p>`;
   } else if (a.kind === "upcoming") {
     text = `<p style="font-size:14px;margin-bottom:8px">${h(a.reason)}</p>
-      <p style="font-size:13px;color:var(--text-light)">Foreslået: <strong>${h(a.to_type)}</strong>${_elevRate(a.to_type)}
-      for hele lønperioden ${dkPeriod(a.effective_from, a.effective_to)}.</p>`;
+      <p style="font-size:13px;color:var(--text-light)">Foreslået: <strong>${h(a.to_type)}</strong>${_elevRate(a.to_type)}.</p>`;
   } else {
     text = a.took_effect
       ? `<p style="font-size:14px"><strong>${h(a.employee_name)}</strong> har nu <strong>${h(a.to_type)}</strong>${_elevRate(a.to_type)}
