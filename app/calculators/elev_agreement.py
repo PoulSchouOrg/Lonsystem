@@ -81,7 +81,9 @@ def apply_due_changes(db: Session, today: date, log=None) -> list:
 
 def _reason(emp: Employee, when: date, from_step: str, to_step: str) -> str:
     return (f"{emp.name} går fra {STEP_LABELS[from_step]} ind i {STEP_LABELS[to_step]} "
-            f"år af sin lærekontrakt den {dk_date(when)}.")
+            f"år af sin lærekontrakt den {dk_date(when)} (lærekontrakten slutter {dk_date(emp.elev_end_date)}). "
+            f"Den nye sats gælder fra lønperioden "
+            f"{dk_period(period_start_for_date(when), period_start_for_date(when) + timedelta(days=PERIOD_DAYS - 1))}.")
 
 
 def upcoming_changes(db: Session, emp: Employee, today: date) -> list:

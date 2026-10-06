@@ -102,7 +102,7 @@ def test_upcoming_alert_starts_notice_days_before_period(db, elev, lon):
     assert _alerts(db, lon, date(2026, 10, 16))["upcoming"] == []
     up = _alerts(db, lon, date(2026, 10, 17))["upcoming"]
     assert [(u["event_date"], u["effective_from"], u["to_type"]) for u in up] == [(EVENT, EFFECTIVE, LAST)]
-    assert "går fra næstsidste ind i sidste år af sin lærekontrakt den 21. november 2026" in up[0]["reason"]
+    assert "går fra næstsidste ind i sidste år af sin lærekontrakt den 21. november 2026 (lærekontrakten slutter 20. november 2027). Den nye sats gælder fra lønperioden 16. november til 29. november 2026." in up[0]["reason"]
 
 
 def test_no_popups_when_disabled_or_only_system_role(db, elev, lon):
