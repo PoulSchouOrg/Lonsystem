@@ -12,6 +12,12 @@
   </script>
 </head>
 <body>
+{% if test_env %}
+<!-- Testmiljø (LONSYSTEM_ENV=test): må aldrig forveksles med produktion -->
+<div style="position:sticky;top:0;z-index:10000;background:#c0392b;color:#fff;text-align:center;font-weight:700;padding:6px 12px;font-size:14px;letter-spacing:.02em">
+  TESTMILJØ – ikke rigtige lønkørsler{% if test_data_source %} · data fra backup {{ test_data_source }}{% endif %} · e-mail er slået fra
+</div>
+{% endif %}
 
 <!-- Login overlay – vises hvis ikke logget ind -->
 <div id="login-overlay" style="display:none;position:fixed;inset:0;background:#317423 url('/static/img/schou_logo.png') center/cover no-repeat;z-index:9999;align-items:center;justify-content:center">

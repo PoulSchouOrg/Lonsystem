@@ -8,6 +8,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from utils.test_env import is_test_env
+
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
@@ -16,6 +18,9 @@ def _sanitize_header(value: str) -> str:
 
 
 def send_timeseddel(to_email: str, employee_name: str, period_label: str, pdf_bytes: bytes, week_label: str = ""):
+    # Testmiljøet bruger rigtige data (kopi af backup) – der må aldrig gå e-mails til chaufførerne derfra.
+    if is_test_env():
+        raise RuntimeError("E-mail er slået fra i testmiljøet")
     host     = os.getenv("SMTP_HOST", "smtp.office365.com")
     port     = int(os.getenv("SMTP_PORT", "587"))
     user     = os.getenv("SMTP_USER", "")
