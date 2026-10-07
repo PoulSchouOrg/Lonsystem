@@ -51,7 +51,7 @@ if (-not (Test-Path -LiteralPath $src)) {
     exit 1
 }
 $py = Join-Path $TestDir ".venv\Scripts\python.exe"
-$check = & $py -c "import sqlite3,sys; print(sqlite3.connect(sys.argv[1]).execute('PRAGMA integrity_check').fetchone()[0])" $src
+$check = & $py -c "import sqlite3,sys`ntry: print(sqlite3.connect(sys.argv[1]).execute('PRAGMA integrity_check').fetchone()[0])`nexcept Exception as e: print(e)" $src 2>&1
 if ($check -ne "ok") {
     Write-Log "FEJL: databasen i $($zip.Name) er beskadiget: $check"
     exit 1
