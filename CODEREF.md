@@ -750,3 +750,12 @@ Når en handling skal blokeres MED forklaring (ikke bare forsvinde): brug en CSS
 
 ### Naturlig sortering af disponentgrupper (2026-09-29)
 Disponentgrupper sorteres "naturligt" (0, 00, 000, 1, 2 … 10 – ikke 1, 10, 2). Backend: `utils/natural_sort.py` → `natural_key()`, brugt i `GET /api/employees/dispatcher-groups`, `GET /api/stamdata/dispatcher-groups` og fraværsoversigtens eksport-options (`absence_overview_router.py`). Frontend: `naturalCompare()` øverst i `app.js` (ved `jq`) til steder der selv sorterer. Nye lister over disponentgrupper skal bruge disse – ikke `order_by(DispatcherGroup.name)` eller `localeCompare`.
+
+
+## Gentagelse i Vagtplan (2026-10-07, calculators/recurrence.py + routers/vagtplan_series.py + activities.py + app.js)
+- **Model:** `VagtplanSeries` (tabel `vagtplan_series`) gemmer reglen (freq weekly/monthly, weekdays "0,3", week_interval = hver N. uge (1-4, talt fra startdatoens uge), start_date, end_mode count/date). Forekomster = almindelige `Activity` (source=vagtplan) og/eller `VagtplanComment` med `series_id`. Månedligt = "N. ugedag" udledt af start_date (5. → sidste).
+- **Beregning:** `occurrence_dates()` – helligdage (tabellen `holidays`) springes over for fravær og erstattes; maks. 1 år (`one_year_after`) og 100 forekomster (`MAX_OCCURRENCES`). `after`/`existing_count` bruges ved forlængelse.
+- **Oprettelse:** `_create_manual_activity_row()` (activities.py) er udtrukket fra `create_manual_activity` og bruges af begge – samme omklassificering/godkendelse/låsetjek. Tider via `_range_day_defaults`.
+- **Endpoints:** `POST /api/vagtplan-series/preview`, `POST /api/vagtplan-series`, `GET /{id}` (view_calendar|vagtplan_view), `PATCH /{id}` (slut ændres KUN i enden; alt-eller-intet ved låst dag), `DELETE /{id}` (bevarer låste/splittede), `DELETE /{id}/occurrences/{dato}`. Skriv kræver `_has_vagtplan_edit_access`.
+- **Frontend:** Gentagelse-felter i opret-modalen (kun vagtplan-kontekst, `_isRepeatOn()`), serie-sektion i `openActivityDetail()` og `openVagtplanCommentModal()` via `_renderSeriesSection()`.
+- Tests: `tests/test_recurrence.py`, `tests/test_vagtplan_series.py`.
