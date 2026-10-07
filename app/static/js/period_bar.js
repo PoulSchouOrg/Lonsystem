@@ -26,6 +26,12 @@ function renderPeriodSwitches() {
   document.querySelectorAll("[data-period-label]").forEach(el => { el.textContent = text; });
 }
 
+// "I dag": lønperioden der indeholder dags dato
+async function goToTodayPeriod() {
+  await loadPeriodInfo();
+  setView(state.currentView);
+}
+
 async function movePeriod(direction) {
   const p = state.periodInfo;
   if (!p) return;
@@ -65,6 +71,7 @@ function initPeriodSwitches() {
   document.addEventListener("click", e => {
     const move = e.target.closest("[data-period-move]");
     if (move) { movePeriod(move.dataset.periodMove); return; }
+    if (e.target.closest("[data-period-today]")) { goToTodayPeriod(); return; }
     const modeBtn = e.target.closest("[data-range-mode] button");
     if (modeBtn) setRangeMode(modeBtn.closest("[data-range-mode]").dataset.rangeMode, modeBtn.dataset.mode);
   });

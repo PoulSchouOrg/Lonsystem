@@ -111,6 +111,7 @@ body {
 /* ── Period navigation ── */
 /* Fælles lønperiode-vælger: ‹ periode › (period_bar.js) */
 .period-switch { display: flex; align-items: center; gap: 6px; }
+.period-today-btn { margin-left: 4px; padding: 4px 12px; }
 .period-switch-label { flex: none; min-width: 200px; text-align: center; font-weight: 600; font-size: 15px; }
 /* Periodeboksen bliver i toppen, når man scroller (Aktiviteter, Lønkørsel, Lønafregning, Fraværsoversigt) */
 .period-bar-sticky { position: sticky; top: -24px; z-index: 50; flex-wrap: wrap; min-height: 60px; padding-top: 10px; padding-bottom: 10px; }

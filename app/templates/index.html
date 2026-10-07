@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PS Løn – Poul Schou A/S</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=29">
+  <link rel="stylesheet" href="/static/css/style.css?v=30">
   <script src="/static/js/msal-browser.min.js"></script>
   <script>
     const ENTRA_TENANT_ID = "{{ entra_tenant_id }}";
@@ -143,6 +143,7 @@
           <button id="btn-prev-period" class="period-nav-btn" title="Forrige lønperiode">&#8249;</button>
           <span id="period-label" class="period-switch-label">Indlæser...</span>
           <button id="btn-next-period" class="period-nav-btn" title="Næste lønperiode">&#8250;</button>
+          <button class="btn btn-secondary period-today-btn" data-period-today title="Gå til lønperioden med dags dato">I dag</button>
         </div>
         <div id="period-date-picker" title="Hop til dato"></div>
         <div style="flex:1"></div>
@@ -194,6 +195,7 @@
           <button class="period-nav-btn" data-period-move="prev" title="Forrige lønperiode">&#8249;</button>
           <span class="period-switch-label" data-period-label>Indlæser...</span>
           <button class="period-nav-btn" data-period-move="next" title="Næste lønperiode">&#8250;</button>
+          <button class="btn btn-secondary period-today-btn" data-period-today title="Gå til lønperioden med dags dato">I dag</button>
         </div>
       </div>
       <div class="toolbar" style="flex-wrap:nowrap">
@@ -215,6 +217,7 @@
           <button class="period-nav-btn" data-period-move="prev" title="Forrige lønperiode">&#8249;</button>
           <span class="period-switch-label" data-period-label>Indlæser...</span>
           <button class="period-nav-btn" data-period-move="next" title="Næste lønperiode">&#8250;</button>
+          <button class="btn btn-secondary period-today-btn" data-period-today title="Gå til lønperioden med dags dato">I dag</button>
         </div>
         <div data-range-dates class="hidden" style="display:flex;align-items:center;gap:10px;font-size:13px">
           <label style="display:flex;align-items:center;gap:5px">Fra:
@@ -256,6 +259,7 @@
           <button class="period-nav-btn" data-period-move="prev" title="Forrige lønperiode">&#8249;</button>
           <span class="period-switch-label" data-period-label>Indlæser...</span>
           <button class="period-nav-btn" data-period-move="next" title="Næste lønperiode">&#8250;</button>
+          <button class="btn btn-secondary period-today-btn" data-period-today title="Gå til lønperioden med dags dato">I dag</button>
         </div>
         <div data-range-dates class="hidden" style="display:flex;align-items:center;gap:10px;font-size:13px">
           <label style="display:flex;align-items:center;gap:5px">Fra:
