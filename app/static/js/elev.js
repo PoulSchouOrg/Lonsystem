@@ -200,17 +200,6 @@ async function openElevDecision(s, onDone) {
   openModal("modal-elev-decision");
 }
 
-// ── Lønkørsel: mulige fejl ──────────────────────────────────────────────────
-function renderElevWarnings(container, warnings) {
-  if (!warnings || !warnings.length) return;
-  const el = document.createElement("div");
-  el.className = "alert-banner mb-16";
-  el.innerHTML = `<span class="icon">⚠️</span><div class="text"><h4>Mulig fejl i elevløn (${warnings.length})</h4>
-    ${warnings.map(w => h(w.reason) + (w.locked_periods || []).map(l => "<br>&#128274; " + h(l.text)).join("")).join("<br>")}
-    <br>Ret eller bevar satsen via "Behandl" i advarslen. Eksporten er ikke blokeret.</div>`;
-  container.appendChild(el);
-}
-
 // ── Medarbejderformularen: "LB behandler elevløn for denne medarbejder" ──────
 async function showElevClaimNote(employeeId) {
   const el = document.getElementById("emp-elev-claim-note");

@@ -218,24 +218,32 @@ function closeAllModals() {
 }
 
 // ── Navigation ─────────────────────────────────────────────────────────────
+const _scrollByView = {};
 function setView(view) {
+  // Hver fane åbner, hvor man forlod den (lodret scroll-position)
+  const scroller = document.querySelector(".main-content");
+  if (state.currentView) _scrollByView[state.currentView] = scroller.scrollTop;
   state.currentView = view;
+  // Fanen huskes i adressen (#fane), så en genindlæsning bliver på samme fane
+  try { history.replaceState(null, "", "#" + view); } catch (_) {}
   document.querySelectorAll(".sidebar-item").forEach(el =>
     el.classList.toggle("active", el.dataset.view === view));
   document.querySelectorAll(".view").forEach(el =>
     el.classList.toggle("hidden", el.dataset.view !== view));
 
-  if (view === "activities")        loadActivities();
-  if (view === "employees")         loadEmployees();
-  if (view === "payroll")           loadPayrollPreview();
-  if (view === "payroll-settlement") loadPayrollSettlement();
-  if (view === "absence-overview")  loadAbsenceOverview();
-  if (view === "vehicles")          loadVehicles();
-  if (view === "employee-supplements") loadEmployeeSupplementsView();
-  if (view === "users-admin")       loadUsersAdminView();
-  if (view === "stamdata")          loadStamdata();
-  if (view === "vagtplan")          loadVagtplan();
-  if (view === "dagsplan")          loadDagsplan();
+  let loading;
+  if (view === "activities")        loading = loadActivities();
+  if (view === "employees")         loading = loadEmployees();
+  if (view === "payroll")           loading = loadPayrollPreview();
+  if (view === "payroll-settlement") loading = loadPayrollSettlement();
+  if (view === "absence-overview")  loading = loadAbsenceOverview();
+  if (view === "vehicles")          loading = loadVehicles();
+  if (view === "employee-supplements") loading = loadEmployeeSupplementsView();
+  if (view === "users-admin")       loading = loadUsersAdminView();
+  if (view === "stamdata")          loading = loadStamdata();
+  if (view === "vagtplan")          loading = loadVagtplan();
+  if (view === "dagsplan")          loading = loadDagsplan();
+  Promise.resolve(loading).finally(() => { scroller.scrollTop = _scrollByView[view] || 0; });
 }
 
 const DAYS_PER_VAGTPLAN_VIEW = 21; // 3 uger: forrige, nuværende, næste
@@ -870,6 +878,7 @@ function renderPeriodBar() {
   document.getElementById("stat-deact").textContent    = `${p.period.deactivated} deaktiveret`;
   setDatePicker("period-date-picker", p.period.start_date);
   updateStatChipActive();
+  renderPeriodSwitches();   // samme periode på Lønkørsel/Lønafregning/Fraværsoversigt (period_bar.js)
 }
 
 function updateStatChipActive() {
@@ -4817,8 +4826,6 @@ function renderPayrollPreview(data) {
   state.payrollData = data;
   state.hasUnresolvedPending = !!data.has_unresolved_pending;
   state.periodClosed = data.period_status === "closed";
-  document.getElementById("payroll-period-label").textContent =
-    `${formatDateShort(data.period_start)} – ${formatDateShort(data.period_end)}`;
   const koerLoenBtn = document.getElementById("btn-koer-loen");
   if (koerLoenBtn) koerLoenBtn.classList.toggle("btn-muted", state.hasUnresolvedPending || state.periodClosed);
 
@@ -4835,7 +4842,6 @@ function renderPayrollPreview(data) {
     warn.innerHTML = `<span class="icon">⚠️</span><div class="text"><h4>Afventende aktiviteter</h4>Der er aktiviteter, der afventer handling. Før lønnen kan køres, skal alle aktiviteter enten godkendes eller deaktiveres. Kun godkendte aktiviteter tæller med i lønnen.</div>`;
     container.appendChild(warn);
   }
-  renderElevWarnings(container, data.elev_warnings);   // static/js/elev.js
 
   data.employees.sort((a, b) => (a.employee_name || "").localeCompare(b.employee_name || "", "da"));
   let any = false;
@@ -5036,13 +5042,8 @@ function settlementDispatcherGroupFilterChanged() {
 }
 
 async function loadPayrollSettlement() {
-  // Default Fra/Til til den lønperiode aktivitetsoversigten viser – ligesom
-  // Fraværsoversigt (bekræftet af bruger 2026-09-04). Ændres kun hvis felterne
-  // er tomme, så brugerens eget valgte interval ikke overskrives ved "Opdater".
-  if (!readDatePicker("settlement-from-dp") && state.periodInfo) {
-    setDatePicker("settlement-from-dp", state.periodInfo.period.start_date);
-    setDatePicker("settlement-to-dp",   state.periodInfo.period.end_date);
-  }
+  // Fra/Til følger den valgte lønperiode, medmindre "Vælg datoer" er slået til (period_bar.js)
+  usePeriodRange("payroll-settlement");
   setLoading(true);
   try {
     fillSettlementDispatcherGroupFilter();
@@ -5146,9 +5147,12 @@ function renderPayrollSettlement(data) {
     if (emp.springer_enabled) {
       headlineParts.push(`Springertillæg: ${emp.springer_rate.toFixed(2)} kr/t`);
     }
-    const dayRows = emp.days.map(day => {
+    // Tyk linje over første række i hver ny uge (mandag) – kun visning, CSV uændret
+    const dayRows = emp.days.map((day, i) => {
       const vognnummer = day.absence_type || day.vehicle_number || "";
-      return `<tr>
+      const newWeek = i > 0 && day.date !== emp.days[i - 1].date
+        && new Date(day.date + "T12:00:00").getDay() === 1;
+      return `<tr${newWeek ? ' class="week-start"' : ""}>
         <td>${formatDate(day.date)}</td>
         <td class="num">${fmtHM(day.normal)}</td>
         <td class="num">${fmtHM(day.ot_before)}</td>
@@ -5230,10 +5234,7 @@ async function confirmExportSettlementCsv() {
 
 // ── Absence Overview ──────────────────────────────────────────────────────
 async function loadAbsenceOverview() {
-  if (!readDatePicker("absence-from-dp") && state.periodInfo) {
-    setDatePicker("absence-from-dp", state.periodInfo.period.start_date);
-    setDatePicker("absence-to-dp",   state.periodInfo.period.end_date);
-  }
+  usePeriodRange("absence-overview");   // se period_bar.js
   setLoading(true);
   try {
     const from = readDatePicker("absence-from-dp");
@@ -5289,8 +5290,8 @@ function renderAbsenceOverview(data) {
       <div class="payroll-col-header">
         <div>Fraværstype</div>
         <div>Dage</div>
-        <div></div>
-        <div>Timer</div>
+        <div>Sats</div>
+        <div class="text-right">Timer</div>
       </div>
       <div class="payroll-rows">
         ${rows}
@@ -7178,7 +7179,9 @@ async function loadApp() {
   applyAutoApprovalVisibility();
 
   await loadAbsenceTypes();
-  await setView(_firstPermittedView());
+  // Lønperioden hentes før første fane, så alle faner (ikke kun Aktiviteter) kender den
+  try { if (!state.periodInfo) await loadPeriodInfo(); } catch (e) { console.error(e); }
+  await setView(_startView());
   // Alle advarsler i én oversigt (static/js/alerts_overview.js) i stedet for en popup pr. type
   await checkAllAlerts();
 }
@@ -7194,6 +7197,20 @@ function _firstPermittedView() {
     if (el.dataset.view !== "activities") return el.dataset.view;
   }
   return "activities";
+}
+
+// Fanen fra adressen (#fane) hvis brugeren har adgang til den, ellers første tilladte
+function _startView() {
+  const wanted = decodeURIComponent(location.hash.slice(1));
+  for (const el of document.querySelectorAll(".sidebar-item[data-view]")) {
+    if (el.dataset.view !== wanted) continue;
+    const section = el.closest(".sidebar-section[data-perm-require]");
+    if (section && !_hasPerm(section.dataset.permRequire)) break;
+    if (el.dataset.permRequire && !_hasPerm(el.dataset.permRequire)) break;
+    if (wanted === "activities" && !_hasPerm("view_calendar")) break;
+    return wanted;
+  }
+  return _firstPermittedView();
 }
 
 function applyAutoApprovalVisibility() {
@@ -7226,6 +7243,7 @@ async function init() {
   buildDatePicker("absence-to-dp", "");
   buildDatePicker("settlement-from-dp", "");
   buildDatePicker("settlement-to-dp", "");
+  initPeriodSwitches();
   document.getElementById("filter-status").addEventListener("change", () => { updateStatChipActive(); renderActivitiesTable(); });
   document.getElementById("filter-employee").addEventListener("change", renderActivitiesTable);
   document.getElementById("filter-dispatcher-group").addEventListener("change", () => { fillEmployeeFilter(); renderActivitiesTable(); });
