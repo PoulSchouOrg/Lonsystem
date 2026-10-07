@@ -217,6 +217,8 @@ class Activity(Base):
     # samlet. Null for enkeltdags-aktiviteter og for perioder oprettet før
     # denne kolonne fandtes (ingen tilbagevirkende migrering).
     absence_group_id = Column(String(36), nullable=True)
+    # Gentagelse i Vagtplan (2026-10-07): forekomstens serie, ellers null.
+    series_id = Column(Integer, ForeignKey("vagtplan_series.id"), nullable=True)
 
     employee = relationship("Employee", back_populates="activities")
     pay_period = relationship("PayPeriod", back_populates="activities")
@@ -242,6 +244,7 @@ class Activity(Base):
         # activities-tabellen vokser over måneder/år.
         Index("ix_activities_period_status", "pay_period_id", "status"),
         Index("ix_activities_absence_group", "absence_group_id"),
+        Index("ix_activities_series", "series_id"),
     )
 
 
@@ -274,12 +277,42 @@ class VagtplanComment(Base):
     text = Column(String(1000), nullable=False)
     created_by = Column(String(10), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
+    series_id = Column(Integer, ForeignKey("vagtplan_series.id"), nullable=True, index=True)
 
     employee = relationship("Employee")
 
     __table_args__ = (
         UniqueConstraint("employee_id", "date", name="uq_vagtplan_comments_employee_date"),
     )
+
+
+class VagtplanSeries(Base):
+    """Gentagelsesregel i Vagtplan (spec 2026-10-07). Forekomsterne er almindelige
+    Activity-/VagtplanComment-rækker med series_id. Månedligt mønster ('N. ugedag i
+    måneden') udledes af start_date og gemmes ikke separat."""
+    __tablename__ = "vagtplan_series"
+
+    id = Column(Integer, primary_key=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    activity_type = Column(String(50), nullable=True)      # null = kun kommentar
+    comment_text = Column(String(1000), nullable=True)     # null = ingen kommentar
+    vehicle_number = Column(String(50), nullable=True)
+    terminsdato = Column(Date, nullable=True)
+    freq = Column(String(10), nullable=False)              # weekly / monthly
+    weekdays = Column(String(20), nullable=True)           # "0,3" (0 = mandag), kun weekly
+    week_interval = Column(Integer, nullable=False, default=1, server_default="1")  # hver N. uge, kun weekly
+    start_date = Column(Date, nullable=False)
+    end_mode = Column(String(10), nullable=False)          # count / date
+    end_count = Column(Integer, nullable=True)
+    end_date = Column(Date, nullable=True)
+    created_by = Column(String(10), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    employee = relationship("Employee")
+
+    @property
+    def weekday_list(self) -> list[int]:
+        return [int(x) for x in self.weekdays.split(",") if x != ""] if self.weekdays else []
 
 
 class DailyPlanAssignment(Base):

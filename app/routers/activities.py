@@ -333,6 +333,7 @@ def _to_response(a: Activity) -> ActivityResponse:
         is_likely_incomplete=bool(a.is_likely_incomplete),
         hidden_from_vagtplan=bool(a.hidden_from_vagtplan),
         absence_group_id=a.absence_group_id,
+        series_id=a.series_id,
         period_closed=bool(a.pay_period and a.pay_period.status == PayPeriodStatus.closed),
     )
 
@@ -592,22 +593,12 @@ def _range_day_defaults(activity_type: str, d: date, employee: Employee) -> Opti
     return scheduled if scheduled > 0 else 7.4
 
 
-@router.post("", response_model=ActivityResponse, status_code=201)
-def create_manual_activity(body: ActivityCreate,
-                            current_user: AppUser = Depends(get_current_user),
-                            db: Session = Depends(get_db)):
-    emp = db.query(Employee).filter(Employee.id == body.employee_id).first()
-    if not emp:
-        raise HTTPException(404, "Medarbejder ikke fundet")
-
-    activity_source = ActivitySource.manual
-    if body.source == "vagtplan":
-        if not _has_vagtplan_edit_access(db, current_user, emp):
-            raise HTTPException(403, "Ingen redigeringsret til Vagtplan for denne medarbejder")
-        activity_source = ActivitySource.vagtplan
-    elif not _has_activity_permission(db, current_user, "edit_activities"):
-        raise HTTPException(403, "Ingen adgang – kræver rettigheden 'Redigér aktiviteter'")
-
+def _create_manual_activity_row(db: Session, current_user: AppUser, emp: Employee,
+                                body: ActivityCreate, source: ActivitySource,
+                                series_id: Optional[int] = None) -> Activity:
+    """Fælles oprettelse af en manuel aktivitet (enkeltdag via POST /api/activities og
+    forekomster i Vagtplan-serier). Rettighedstjek, log_action og commit ligger hos
+    kalderen."""
     activity_type = body.activity_type
 
     if activity_type in _BACKEND_ONLY_TYPES:
@@ -645,7 +636,7 @@ def create_manual_activity(body: ActivityCreate,
     activity = Activity(
         employee_id=body.employee_id,
         pay_period_id=period.id,
-        source=activity_source,
+        source=source,
         created_by=current_user.initials,
         activity_type=activity_type,
         start_time=body.start_time,
@@ -660,6 +651,7 @@ def create_manual_activity(body: ActivityCreate,
         pause_intervals=body.pause_intervals,
         status=ActivityStatus.pending,
         absence_group_id=body.absence_group_id,
+        series_id=series_id,
     )
     db.add(activity)
     db.flush()
@@ -673,7 +665,26 @@ def create_manual_activity(body: ActivityCreate,
             dur = _duration_minutes(activity)
             if dur < FOUR_HOURS and not _day_reaches_4h_with_approved(activity, dur):
                 activity.comment = current_user.initials
+    return activity
 
+
+@router.post("", response_model=ActivityResponse, status_code=201)
+def create_manual_activity(body: ActivityCreate,
+                            current_user: AppUser = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    emp = db.query(Employee).filter(Employee.id == body.employee_id).first()
+    if not emp:
+        raise HTTPException(404, "Medarbejder ikke fundet")
+
+    activity_source = ActivitySource.manual
+    if body.source == "vagtplan":
+        if not _has_vagtplan_edit_access(db, current_user, emp):
+            raise HTTPException(403, "Ingen redigeringsret til Vagtplan for denne medarbejder")
+        activity_source = ActivitySource.vagtplan
+    elif not _has_activity_permission(db, current_user, "edit_activities"):
+        raise HTTPException(403, "Ingen adgang – kræver rettigheden 'Redigér aktiviteter'")
+
+    activity = _create_manual_activity_row(db, current_user, emp, body, activity_source)
     log_action(db, current_user, "create_activity", "activity", activity.id,
                f"Manuelt oprettet for {emp.name}")
     db.commit()

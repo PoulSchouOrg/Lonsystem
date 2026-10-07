@@ -310,7 +310,7 @@ function jumpToVagtplanDate(dateIso) {
   loadVagtplan();
 }
 
-function openVagtplanCommentModal(commentId) {
+async function openVagtplanCommentModal(commentId) {
   const c = state.vagtplan.comments.find(x => x.id === commentId);
   if (!c) return;
   const emp = state.employees.find(e => e.id === c.employee_id);
@@ -318,7 +318,15 @@ function openVagtplanCommentModal(commentId) {
   document.getElementById("vagtplan-comment-info").textContent =
     `${emp ? emp.name : "Ukendt medarbejder"} – ${formatDate(c.date)}`;
   document.getElementById("vagtplan-comment-text").value = c.text;
+  const seriesEl = document.getElementById("vagtplan-comment-series");
+  seriesEl.innerHTML = "";
   openModal("modal-vagtplan-comment");
+  if (c.series_id) {
+    try {
+      const series = await GET(`/api/vagtplan-series/${c.series_id}`);
+      seriesEl.innerHTML = _renderSeriesSection(series, c.date, _hasVagtplanEditAccess(emp));
+    } catch (e) { /* serien kunne ikke hentes – sektionen udelades */ }
+  }
 }
 
 async function confirmVagtplanComment() {
@@ -1335,6 +1343,16 @@ async function openActivityDetail(id) {
     } catch (e) { /* gruppen kunne ikke hentes – periode-sektionen udelades, enkeltdags-redigering virker stadig */ }
   }
 
+  let seriesHtml = "";
+  if (a.series_id) {
+    try {
+      const series = await GET(`/api/vagtplan-series/${a.series_id}`);
+      const emp = state.employees.find(e => e.id === a.employee_id);
+      const canEdit = _hasVagtplanEditAccess(emp) && !a.period_closed;
+      seriesHtml = _renderSeriesSection(series, a.start_time.slice(0, 10), canEdit);
+    } catch (e) { /* serien kunne ikke hentes – sektionen udelades */ }
+  }
+
   document.getElementById("modal-activity-title").textContent =
     `${a.employee_name} – ${formatDate(a.start_time)}`;
 
@@ -1357,6 +1375,7 @@ async function openActivityDetail(id) {
   }
 
   document.getElementById("modal-activity-body").innerHTML = `
+    ${seriesHtml}
     ${absencePeriod && !_editLocked(a) ? `
     <div class="form-group" id="absence-period-section" style="margin-bottom:14px;padding:10px;background:var(--bg);border-radius:var(--radius)">
       <label style="font-weight:500;font-size:12px;text-transform:uppercase;color:var(--text-light);margin-bottom:6px;display:block">Fraværsperiode</label>
@@ -2372,10 +2391,21 @@ function updateManualTypeVisibility() {
     });
     document.getElementById("manual-salt").checked = false;
   }
-  document.getElementById("manual-til-dato-group").style.display = tilDatoFieldVisible ? "" : "none";
-  if (!tilDatoFieldVisible) document.getElementById("manual-til-dato").value = "";
+  // Gentagelse (Vagtplan): kun startdato – ingen til-dato, sluttid, pauser eller klokkeslæt.
+  // Startdatoen vises også ved "Ingen (kun kommentar)", da den er seriens start.
+  const repeatOn = _isRepeatOn();
+  document.getElementById("manual-til-dato-group").style.display = (tilDatoFieldVisible && !repeatOn) ? "" : "none";
+  if (!tilDatoFieldVisible || repeatOn) document.getElementById("manual-til-dato").value = "";
   const pauseSection = document.getElementById("manual-pause-section");
-  if (pauseSection) pauseSection.style.display = (isDateOnly || isCommentOnly) ? "none" : "";
+  if (pauseSection) pauseSection.style.display = (isDateOnly || isCommentOnly || repeatOn) ? "none" : "";
+  if (repeatOn) {
+    document.getElementById("manual-end-group").style.display = "none";
+    document.getElementById("manual-start-group").style.display = "";
+    const timeEl = document.getElementById("manual-start")?.querySelector(".dt-time");
+    if (timeEl) timeEl.style.display = "none";
+    const startLbl = document.querySelector("#manual-start-group label");
+    if (startLbl) startLbl.innerHTML = `Startdato <span style="color:var(--danger)">*</span>`;
+  }
 
   if (isFerie)        applyFerieDefaults();
   if (isSygdom)       applySygdomDefaults();
@@ -2777,6 +2807,198 @@ document.addEventListener("click", (e) => {
   }
 });
 
+// ── Gentagelse i Vagtplan (spec 2026-10-07) ─────────────────────────────────
+const _WEEKDAY_NAMES_DA = ["mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag"];
+
+function _isRepeatOn() {
+  return _manualActivityContext.vagtplan && document.getElementById("manual-repeat").checked;
+}
+
+// Spejler calculators/recurrence.py:describe() for månedligt mønster.
+function _monthlyLabel(dateIso) {
+  if (!dateIso) return "";
+  const d = new Date(dateIso + "T12:00:00");
+  const nth = Math.floor((d.getDate() - 1) / 7) + 1;
+  const day = _WEEKDAY_NAMES_DA[(d.getDay() + 6) % 7];
+  return nth >= 5 ? `Sidste ${day} i måneden` : `Hver ${nth}. ${day} i måneden`;
+}
+
+function _manualStartDateIso() {
+  return document.getElementById("manual-start")?.querySelector(".dt-date")?.value || "";
+}
+
+function _updateRepeatUi() {
+  const on = _isRepeatOn();
+  document.getElementById("manual-repeat-fields").style.display = on ? "" : "none";
+  const freq = document.querySelector('input[name="manual-repeat-freq"]:checked').value;
+  document.getElementById("manual-repeat-weekdays").style.display = freq === "weekly" ? "flex" : "none";
+  document.getElementById("manual-repeat-interval-row").style.display = freq === "weekly" ? "flex" : "none";
+  const lbl = document.getElementById("manual-repeat-monthly-label");
+  lbl.style.display = freq === "monthly" ? "" : "none";
+  lbl.textContent = _monthlyLabel(_manualStartDateIso());
+  const startIso = _manualStartDateIso();
+  const endDate = document.getElementById("manual-repeat-end-date");
+  endDate.min = startIso;
+  if (startIso) {
+    const max = new Date(startIso + "T12:00:00");
+    max.setFullYear(max.getFullYear() + 1);
+    endDate.max = _isoOfDate(max);
+  }
+  updateManualTypeVisibility();
+}
+
+// Forvælg startdatoens ugedag (kun når ingen ugedag er valgt endnu).
+function _preselectRepeatWeekday() {
+  const iso = _manualStartDateIso();
+  const boxes = [...document.querySelectorAll(".manual-repeat-wd")];
+  if (!iso || boxes.some(b => b.checked)) return;
+  const idx = (new Date(iso + "T12:00:00").getDay() + 6) % 7;
+  boxes[idx].checked = true;
+}
+
+function _readRepeatRule() {
+  const freq = document.querySelector('input[name="manual-repeat-freq"]:checked').value;
+  const weekdays = [...document.querySelectorAll(".manual-repeat-wd:checked")].map(b => parseInt(b.value));
+  if (freq === "weekly" && weekdays.length === 0) { toast("Vælg mindst én ugedag", "error"); return null; }
+  const end_mode = document.querySelector('input[name="manual-repeat-end"]:checked').value;
+  const interval = parseInt(document.getElementById("manual-repeat-interval").value);
+  if (freq === "weekly" && !(interval >= 1 && interval <= 4)) { toast("Hver N. uge skal være 1–4", "error"); return null; }
+  const rule = { freq, weekdays: freq === "weekly" ? weekdays : [], week_interval: freq === "weekly" ? interval : 1,
+                 end_mode, end_count: null, end_date: null };
+  if (end_mode === "count") {
+    const n = parseInt(document.getElementById("manual-repeat-count").value);
+    if (!(n >= 1 && n <= 100)) { toast("Antal gentagelser skal være 1–100", "error"); return null; }
+    rule.end_count = n;
+  } else {
+    const d = document.getElementById("manual-repeat-end-date").value;
+    if (!d) { toast("Angiv slutdato for gentagelsen", "error"); return null; }
+    rule.end_date = d;
+  }
+  return rule;
+}
+
+async function _createVagtplanSeries(empId, actType, startDate) {
+  const rule = _readRepeatRule();
+  if (!rule) return;
+  const commentText = document.getElementById("manual-vagtplan-comment").value.trim() || null;
+  const isCommentOnly = actType === "__none__";
+  if (isCommentOnly && !commentText) { toast("Skriv en kommentar", "error"); return; }
+  let vehicleNumber = null;
+  if (!isCommentOnly && actType !== "overnatning") {
+    const regInput = document.getElementById("manual-reg").value.trim().toUpperCase();
+    if (!regInput) { toast("Registreringsnummer / Vognnummer er påkrævet", "error"); return; }
+    const v = state.vehicles.find(x => x.registration_number.toUpperCase() === regInput || x.vehicle_number.toUpperCase() === regInput);
+    if (!v) { openModal("modal-reg-error"); return; }
+    vehicleNumber = v.vehicle_number;
+  }
+  const terminsdato = document.getElementById("manual-terminsdato").value || null;
+  if (actType === "barsel" && !terminsdato) { toast("Angiv terminsdato for barsel", "error"); return; }
+  const payload = {
+    employee_id: empId,
+    activity_type: isCommentOnly ? null : actType,
+    comment_text: commentText,
+    vehicle_number: vehicleNumber,
+    terminsdato,
+    start_date: startDate,
+    ...rule,
+  };
+  const fmt = d => { const [y, m, day] = d.split("-"); return `${day}-${m}-${y}`; };
+  let preview;
+  try { preview = await POST("/api/vagtplan-series/preview", payload); }
+  catch (e) { toast(e.message, "error"); return; }
+  if (preview.locked_dates.length) {
+    toast(`Kan ikke oprette – lønperioden er låst for: ${preview.locked_dates.map(fmt).join(", ")}`, "error");
+    return;
+  }
+  const lines = [`${preview.description}: ${preview.dates.length} forekomster (${fmt(preview.dates[0])} – ${fmt(preview.dates[preview.dates.length - 1])}).`];
+  if (preview.driving_conflicts.length) lines.push(`Der er registreret kørsel på: ${preview.driving_conflicts.map(fmt).join(", ")}.`);
+  if (preview.comment_conflicts.length) lines.push(`Der findes allerede en kommentar på: ${preview.comment_conflicts.map(fmt).join(", ")} – den overskrives ikke.`);
+  if (preview.skipped_no_hours.length) lines.push(`Springes over (ingen garanterede timer): ${preview.skipped_no_hours.map(fmt).join(", ")}.`);
+  if (!window.confirm(lines.join("\n\n") + "\n\nOpret gentagelsen?")) return;
+  try {
+    const res = await POST("/api/vagtplan-series", payload);
+    toast(`${res.created} forekomster oprettet`, "success");
+    closeModal("modal-manual-activity");
+    await loadVagtplan();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+function _renderSeriesSection(series, occurrenceDate, canEdit) {
+  const isCount = series.end_mode === "count";
+  const countVal = series.occurrence_count;
+  const dateVal = series.end_date || series.last_date || "";
+  const maxD = new Date(series.start_date + "T12:00:00");
+  maxD.setFullYear(maxD.getFullYear() + 1);
+  const controls = canEdit ? `
+      <div style="display:flex;flex-direction:column;gap:6px;margin:8px 0">
+        <label style="display:flex;align-items:center;gap:6px">
+          <input type="radio" name="series-end-mode" value="count" ${isCount ? "checked" : ""}> Efter
+          <input type="number" id="series-end-count" min="1" max="100" value="${countVal}" style="width:70px"> gange
+        </label>
+        <label style="display:flex;align-items:center;gap:6px">
+          <input type="radio" name="series-end-mode" value="date" ${isCount ? "" : "checked"}> Den
+          <input type="date" id="series-end-date" value="${dateVal}" min="${series.first_date || series.start_date}" max="${_isoOfDate(maxD)}" style="width:170px">
+        </label>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button type="button" class="btn btn-secondary" style="font-size:13px;padding:5px 14px" onclick="saveSeriesEnd(${series.id})">Gem for serien</button>
+        <button type="button" class="btn btn-secondary" style="font-size:13px;padding:5px 14px" onclick="deleteSeriesOccurrence(${series.id}, '${occurrenceDate}')">Slet denne forekomst</button>
+        <button type="button" class="btn btn-danger" style="font-size:13px;padding:5px 14px" onclick="deleteWholeSeries(${series.id})">Slet hele serien</button>
+      </div>` : "";
+  return `
+    <div class="form-group" id="series-section" style="margin-bottom:14px;padding:10px;background:var(--bg);border-radius:var(--radius)">
+      <label style="font-weight:500;font-size:12px;text-transform:uppercase;color:var(--text-light);margin-bottom:6px;display:block">Gentagelse</label>
+      <div style="font-size:13px">${h(series.description)} – ${series.occurrence_count} forekomster (${formatDate(series.first_date)} – ${formatDate(series.last_date)})</div>
+      ${controls}
+    </div>`;
+}
+
+async function _afterSeriesChange() {
+  closeAllModals();
+  if (state.currentView === "vagtplan") await loadVagtplan();
+  else await refreshActivities();
+}
+
+async function saveSeriesEnd(seriesId) {
+  const mode = document.querySelector('input[name="series-end-mode"]:checked')?.value;
+  const body = { end_mode: mode, end_count: null, end_date: null };
+  if (mode === "count") {
+    const n = parseInt(document.getElementById("series-end-count").value);
+    if (!(n >= 1 && n <= 100)) { toast("Antal gentagelser skal være 1–100", "error"); return; }
+    body.end_count = n;
+  } else {
+    const d = document.getElementById("series-end-date").value;
+    if (!d) { toast("Angiv slutdato", "error"); return; }
+    body.end_date = d;
+  }
+  try {
+    const r = await PATCH(`/api/vagtplan-series/${seriesId}`, body);
+    toast(`Gentagelse opdateret – ${r.added} tilføjet, ${r.removed} fjernet`, "success");
+    if (r.skipped_comments.length) toast(`Kommentar ikke oprettet (findes allerede) på ${r.skipped_comments.length} dag(e)`, "warning");
+    if (r.skipped_no_hours.length) toast(`${r.skipped_no_hours.length} dag(e) sprunget over – ingen garanterede timer`, "warning");
+    await _afterSeriesChange();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+async function deleteSeriesOccurrence(seriesId, dateIso) {
+  if (!window.confirm(`Slet forekomsten d. ${formatDate(dateIso)}?`)) return;
+  try {
+    await DEL(`/api/vagtplan-series/${seriesId}/occurrences/${dateIso}`);
+    toast("Forekomst slettet", "success");
+    await _afterSeriesChange();
+  } catch (e) { toast(e.message, "error"); }
+}
+
+async function deleteWholeSeries(seriesId) {
+  if (!window.confirm("Slet hele serien? Alle forekomster slettes permanent (undtagen i låste lønperioder).")) return;
+  try {
+    const r = await DEL(`/api/vagtplan-series/${seriesId}`);
+    const kept = r.kept_locked + r.kept_split;
+    toast(kept ? `${r.deleted} forekomster slettet – ${kept} er bevaret (låst lønperiode eller splittet)` : `${r.deleted} forekomster slettet`, "success");
+    await _afterSeriesChange();
+  } catch (e) { toast(e.message, "error"); }
+}
+
 async function openManualActivityModal(empId = null, dateIso = null, opts = {}) {
   // Klik på en dato i en låst lønperiode: advar FØR modalen åbnes (tjekkes igen ved gem).
   if (dateIso && await _rejectIfLockedDates([dateIso])) return;
@@ -2794,6 +3016,16 @@ async function openManualActivityModal(empId = null, dateIso = null, opts = {}) 
   document.getElementById("manual-salt").checked = false;
   document.getElementById("manual-dob").checked = false;
   document.getElementById("manual-vagtplan-comment-group").style.display = _manualActivityContext.vagtplan ? "" : "none";
+  document.getElementById("manual-repeat-group").style.display = _manualActivityContext.vagtplan ? "" : "none";
+  document.getElementById("manual-repeat").checked = false;
+  document.querySelector('input[name="manual-repeat-freq"][value="weekly"]').checked = true;
+  document.querySelector('input[name="manual-repeat-end"][value="count"]').checked = true;
+  document.getElementById("manual-repeat-count").value = "4";
+  document.getElementById("manual-repeat-interval").value = "1";
+  document.getElementById("manual-repeat-end-date").value = "";
+  document.querySelectorAll(".manual-repeat-wd").forEach(b => b.checked = false);
+  document.getElementById("manual-repeat").onchange = () => { _preselectRepeatWeekday(); _updateRepeatUi(); };
+  document.querySelectorAll('input[name="manual-repeat-freq"]').forEach(r => r.onchange = _updateRepeatUi);
 
   const typeSelect = document.getElementById("manual-type");
   const existingNoneOpt = typeSelect.querySelector('option[value="__none__"]');
@@ -2873,6 +3105,7 @@ async function openManualActivityModal(empId = null, dateIso = null, opts = {}) 
       if (startDate && endDateEl) endDateEl.value = startDate;
       applyDagsplanVehicleDefault();
     }
+    if (_isRepeatOn()) _updateRepeatUi();
   });
 
   if (empId) document.getElementById("manual-employee").value = empId;
@@ -2996,6 +3229,13 @@ async function confirmManualActivity() {
   const actType = document.getElementById("manual-type").value;
   const tilDato = document.getElementById("manual-til-dato").value;
   const empId   = parseInt(document.getElementById("manual-employee").value);
+
+  if (_isRepeatOn()) {
+    const startDate = _manualStartDateIso();
+    if (!startDate) { toast("Angiv startdato", "error"); return; }
+    await _createVagtplanSeries(empId, actType, startDate);
+    return;
+  }
 
   if (_manualActivityContext.vagtplan && actType === "__none__") {
     const dateIso = document.getElementById("manual-start")?.querySelector(".dt-date")?.value;

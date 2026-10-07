@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -203,6 +203,7 @@ class ActivityResponse(BaseModel):
     is_likely_incomplete: bool = False
     hidden_from_vagtplan: bool = False
     absence_group_id: Optional[str] = None
+    series_id: Optional[int] = None
     period_closed: bool = False
 
 
@@ -488,5 +489,103 @@ class VagtplanCommentResponse(BaseModel):
     date: date
     text: str
     created_by: Optional[str] = None
+    series_id: Optional[int] = None
 
     model_config = {"from_attributes": True}
+
+
+class VagtplanSeriesCreate(BaseModel):
+    employee_id: int
+    activity_type: Optional[str] = None          # null = kun kommentar
+    comment_text: Optional[str] = Field(default=None, max_length=1000)
+    vehicle_number: Optional[str] = Field(default=None, max_length=50)
+    terminsdato: Optional[date] = None
+    freq: Literal["weekly", "monthly"]
+    weekdays: list[int] = Field(default_factory=list)
+    week_interval: int = Field(default=1, ge=1, le=4)   # hver N. uge, kun weekly
+    start_date: date
+    end_mode: Literal["count", "date"]
+    end_count: Optional[int] = Field(default=None, ge=1, le=100)
+    end_date: Optional[date] = None
+
+    @model_validator(mode="after")
+    def _validate(self):
+        if self.comment_text is not None and not self.comment_text.strip():
+            self.comment_text = None
+        if not self.activity_type and not self.comment_text:
+            raise ValueError("Vælg en fraværstype eller skriv en kommentar")
+        if self.freq == "weekly":
+            if not self.weekdays:
+                raise ValueError("Vælg mindst én ugedag")
+            if any(w < 0 or w > 6 for w in self.weekdays):
+                raise ValueError("Ugyldig ugedag")
+        if self.end_mode == "count" and self.end_count is None:
+            raise ValueError("Angiv antal gentagelser")
+        if self.end_mode == "date":
+            if self.end_date is None:
+                raise ValueError("Angiv slutdato")
+            if self.end_date < self.start_date:
+                raise ValueError("Slutdato skal være på eller efter startdatoen")
+        return self
+
+
+class VagtplanSeriesPreview(BaseModel):
+    dates: list[date]
+    locked_dates: list[date]
+    comment_conflicts: list[date]
+    driving_conflicts: list[date]
+    skipped_no_hours: list[date]
+    description: str
+
+
+class VagtplanSeriesResponse(BaseModel):
+    id: int
+    employee_id: int
+    activity_type: Optional[str] = None
+    comment_text: Optional[str] = None
+    freq: str
+    weekdays: list[int]
+    week_interval: int = 1
+    start_date: date
+    end_mode: str
+    end_count: Optional[int] = None
+    end_date: Optional[date] = None
+    description: str
+    occurrence_count: int
+    first_date: Optional[date] = None
+    last_date: Optional[date] = None
+
+
+class VagtplanSeriesCreateResult(BaseModel):
+    series: VagtplanSeriesResponse
+    created: int
+    skipped_comments: list[date]
+    skipped_no_hours: list[date]
+
+
+class VagtplanSeriesEndUpdate(BaseModel):
+    end_mode: Literal["count", "date"]
+    end_count: Optional[int] = Field(default=None, ge=1, le=100)
+    end_date: Optional[date] = None
+
+    @model_validator(mode="after")
+    def _validate(self):
+        if self.end_mode == "count" and self.end_count is None:
+            raise ValueError("Angiv antal gentagelser")
+        if self.end_mode == "date" and self.end_date is None:
+            raise ValueError("Angiv slutdato")
+        return self
+
+
+class VagtplanSeriesUpdateResult(BaseModel):
+    series: VagtplanSeriesResponse
+    added: int
+    removed: int
+    skipped_comments: list[date]
+    skipped_no_hours: list[date]
+
+
+class VagtplanSeriesDeleteResult(BaseModel):
+    deleted: int
+    kept_locked: int
+    kept_split: int

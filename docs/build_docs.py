@@ -2406,6 +2406,29 @@ def build_teknisk():
         "dagen efter dags dato – et hurtigt overblik uden at skulle bladre til næste uge."
     ))
 
+    heading(doc, "Gentagelse", 2, "15.4")
+    body(doc, (
+        "Gentagelse (routers/vagtplan_series.py + calculators/recurrence.py, 2026-10-07): tabellen "
+        "vagtplan_series gemmer reglen (ugentligt på valgte ugedage – evt. hver N. uge via week_interval, talt fra startdatoens uge – eller månedligt på 'N. ugedag' "
+        "udledt af startdatoen – 5. bliver 'sidste'), startdato og slutning (antal eller dato). "
+        "Hver forekomst er en almindelig Activity (source=vagtplan) og/eller VagtplanComment med "
+        "series_id. occurrence_dates() springer helligdage over for fravær (og erstatter dem), og "
+        "begrænser til 1 år og 100 forekomster. Fraværsforekomster oprettes via "
+        "_create_manual_activity_row() i activities.py – samme regler som en enkelt dag – med "
+        "tider fra _range_day_defaults()."
+    ))
+    header_table(doc,
+        ["Endepunkt", "Metode", "Rettighed", "Beskrivelse"],
+        [
+            ["/api/vagtplan-series/preview", "POST", "Redigeringsret til linjen", "Datoer, låste datoer, kommentar-/kørselskonflikter og dage uden garanterede timer. Gemmer intet."],
+            ["/api/vagtplan-series", "POST", "Redigeringsret til linjen", "Opretter serie + forekomster i én transaktion. Afvises helt hvis en dato er låst."],
+            ["/api/vagtplan-series/{id}", "GET", "view_calendar eller vagtplan_view", "Regel, beskrivelse, antal forekomster, første/sidste dato."],
+            ["/api/vagtplan-series/{id}", "PATCH", "Redigeringsret til linjen", "Ændrer slutning – KUN i enden (enkeltvis slettede dage genopstår ikke). Alt-eller-intet ved låste dage."],
+            ["/api/vagtplan-series/{id}", "DELETE", "Redigeringsret til linjen", "Sletter alle forekomster undtagen i låste lønperioder (og splittede)."],
+            ["/api/vagtplan-series/{id}/occurrences/{dato}", "DELETE", "Redigeringsret til linjen", "Sletter dagens aktivitet og kommentar i serien."],
+        ]
+    )
+
     # ── 16. Fraværsoversigt ──────────────────────────────────────────────
     doc.add_page_break()
     heading(doc, "Fraværsoversigt", 1, "16")
@@ -3946,6 +3969,14 @@ def build_bruger():
         "'Godkend aktiviteter'.",
         "BEMÆRK"
     )
+
+    heading(doc, "Gentagelse", 2, "14.3")
+    body(doc, "Afkryds 'Gentagelse' i registreringsvinduet for at oprette det samme fravær eller den samme kommentar flere gange:")
+    bullet(doc, "Ugentligt: vælg en eller flere ugedage (fx hver mandag og torsdag) og evt. 'Hver 2. uge' (1-4, talt fra startdatoens uge).")
+    bullet(doc, "Månedligt: samme ugedag i måneden som startdatoen (fx hver 2. tirsdag – eller sidste fredag).")
+    bullet(doc, "Slutter: efter et antal gange (maks. 100) eller på en dato (maks. 1 år frem).")
+    bullet(doc, "Fravær springer helligdage over og tager næste dag i stedet; kommentarer oprettes også på helligdage. Findes der allerede en kommentar på en dag, overskrives den ikke.")
+    body(doc, "Åbn en vilkårlig forekomst for at ændre antal/slutdato for hele serien, slette kun denne forekomst eller slette hele serien. Forekomster i en låst lønperiode bevares altid.")
 
     # ── 15. Fraværsoversigt ──────────────────────────────────────────────
     doc.add_page_break()

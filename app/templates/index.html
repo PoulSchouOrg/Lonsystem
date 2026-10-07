@@ -1065,6 +1065,43 @@
         <label>Til dato <span style="color:var(--text-light);font-size:12px;font-weight:normal">(valgfri – udfyldes ved periode)</span></label>
         <input type="date" id="manual-til-dato" style="width:100%;max-width:220px">
       </div>
+      <div class="form-group" id="manual-repeat-group" style="display:none">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500">
+          <input type="checkbox" id="manual-repeat" style="width:16px;height:16px;cursor:pointer">
+          Gentagelse
+        </label>
+        <div id="manual-repeat-fields" style="display:none;margin-top:8px;padding:10px;background:var(--bg);border-radius:var(--radius)">
+          <span style="display:block;font-size:12px;font-weight:600;text-transform:uppercase;color:var(--text-light);margin-bottom:4px">Gentag</span>
+          <div style="display:flex;gap:16px;margin-bottom:8px">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="manual-repeat-freq" value="weekly" checked> Ugentligt</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="manual-repeat-freq" value="monthly"> Månedligt</label>
+          </div>
+          <div id="manual-repeat-interval-row" style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+            Hver <span style="display:inline-flex;align-items:center;gap:2px"><input type="number" id="manual-repeat-interval" min="1" max="4" value="1" style="width:60px">.</span> uge
+          </div>
+          <div id="manual-repeat-weekdays" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+            <label><input type="checkbox" class="manual-repeat-wd" value="0"> Man</label>
+            <label><input type="checkbox" class="manual-repeat-wd" value="1"> Tir</label>
+            <label><input type="checkbox" class="manual-repeat-wd" value="2"> Ons</label>
+            <label><input type="checkbox" class="manual-repeat-wd" value="3"> Tor</label>
+            <label><input type="checkbox" class="manual-repeat-wd" value="4"> Fre</label>
+            <label><input type="checkbox" class="manual-repeat-wd" value="5"> Lør</label>
+            <label><input type="checkbox" class="manual-repeat-wd" value="6"> Søn</label>
+          </div>
+          <div id="manual-repeat-monthly-label" style="display:none;font-size:13px;margin-bottom:8px"></div>
+          <span style="display:block;font-size:12px;font-weight:600;text-transform:uppercase;color:var(--text-light);margin:10px 0 4px">Slutter</span>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <label style="display:flex;align-items:center;gap:6px">
+              <input type="radio" name="manual-repeat-end" value="count" checked> Efter
+              <input type="number" id="manual-repeat-count" min="1" max="100" value="4" style="width:70px"> gange
+            </label>
+            <label style="display:flex;align-items:center;gap:6px">
+              <input type="radio" name="manual-repeat-end" value="date"> Den
+              <input type="date" id="manual-repeat-end-date" style="width:170px">
+            </label>
+          </div>
+        </div>
+      </div>
       <div class="form-group" id="manual-end-group">
         <label>Sluttid <span style="color:var(--danger)">*</span></label>
         <div class="dt-picker" id="manual-end"></div>
@@ -1149,6 +1186,7 @@
         <label>Tekst</label>
         <textarea id="vagtplan-comment-text" rows="3"></textarea>
       </div>
+      <div id="vagtplan-comment-series"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-danger" onclick="deleteVagtplanComment()" style="margin-right:auto">&#10007; Slet</button>

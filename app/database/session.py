@@ -178,6 +178,20 @@ def _migrate():
         if "absence_group_id" not in act_cols2:
             conn.execute("ALTER TABLE activities ADD COLUMN absence_group_id VARCHAR(36)")
             conn.commit()
+        if "series_id" not in act_cols2:
+            conn.execute("ALTER TABLE activities ADD COLUMN series_id INTEGER REFERENCES vagtplan_series(id)")
+            conn.commit()
+        vc_cols = {row[1] for row in conn.execute("PRAGMA table_info(vagtplan_comments)")}
+        if vc_cols and "series_id" not in vc_cols:
+            conn.execute("ALTER TABLE vagtplan_comments ADD COLUMN series_id INTEGER REFERENCES vagtplan_series(id)")
+            conn.commit()
+        if vc_cols:
+            conn.execute("CREATE INDEX IF NOT EXISTS ix_vagtplan_comments_series_id ON vagtplan_comments(series_id)")
+            conn.commit()
+        vs_cols = {row[1] for row in conn.execute("PRAGMA table_info(vagtplan_series)")}
+        if vs_cols and "week_interval" not in vs_cols:
+            conn.execute("ALTER TABLE vagtplan_series ADD COLUMN week_interval INTEGER NOT NULL DEFAULT 1")
+            conn.commit()
         if "original_pause_intervals" not in act_cols2:
             conn.execute("ALTER TABLE activities ADD COLUMN original_pause_intervals TEXT")
             conn.commit()
@@ -217,6 +231,9 @@ def _migrate():
             conn.execute(
                 "CREATE INDEX ix_activities_absence_group ON activities(absence_group_id)"
             )
+            conn.commit()
+        if "ix_activities_series" not in existing_indexes:
+            conn.execute("CREATE INDEX ix_activities_series ON activities(series_id)")
             conn.commit()
         baseline_indexes = {row[1] for row in conn.execute("PRAGMA index_list(employee_baselines)")}
         if "uq_employee_baselines_employee_weekday" not in baseline_indexes:
