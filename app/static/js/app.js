@@ -221,7 +221,8 @@ function closeAllModals() {
 const _scrollByView = {};
 function setView(view) {
   // Hver fane åbner, hvor man forlod den (lodret scroll-position)
-  if (state.currentView) _scrollByView[state.currentView] = window.scrollY;
+  const scroller = document.querySelector(".main-content");
+  if (state.currentView) _scrollByView[state.currentView] = scroller.scrollTop;
   state.currentView = view;
   // Fanen huskes i adressen (#fane), så en genindlæsning bliver på samme fane
   try { history.replaceState(null, "", "#" + view); } catch (_) {}
@@ -242,7 +243,7 @@ function setView(view) {
   if (view === "stamdata")          loading = loadStamdata();
   if (view === "vagtplan")          loading = loadVagtplan();
   if (view === "dagsplan")          loading = loadDagsplan();
-  Promise.resolve(loading).finally(() => window.scrollTo(0, _scrollByView[view] || 0));
+  Promise.resolve(loading).finally(() => { scroller.scrollTop = _scrollByView[view] || 0; });
 }
 
 const DAYS_PER_VAGTPLAN_VIEW = 21; // 3 uger: forrige, nuværende, næste
