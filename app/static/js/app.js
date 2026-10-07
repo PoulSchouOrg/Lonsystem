@@ -5158,6 +5158,10 @@ function renderPayrollSettlement(data) {
         <td class="num">${fmtKr(day.total_kr)}</td>
       </tr>`;
     }).join("");
+    // Kun visning (2026-10-07): summer de viste (afrundede) dagsværdier, så totalen
+    // stemmer med kolonnen. CSV-eksporten bygges på serveren og påvirkes ikke.
+    const sumHM = key => emp.days.reduce((s, d) => s + Math.round((d[key] || 0) * 60), 0) / 60;
+    const sumTotalHours = emp.days.reduce((s, d) => s + Math.round((d.total_hours || 0) * 100), 0) / 100;
     el.innerHTML = `
       <div class="payroll-emp-header">
         <div class="emp-avatar" style="width:34px;height:34px;font-size:13px">${h(emp.employee_name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase())}</div>
@@ -5169,14 +5173,19 @@ function renderPayrollSettlement(data) {
       <div style="overflow-x:auto">
         <table class="settlement-table">
           <thead><tr>
-            <th>Dato</th><th>Normal timer</th><th>Overtid 1 time før</th>
-            <th>Overtid 1-3 timer efter</th><th>Øvrig overtid</th><th>Total tid</th>
-            <th>Total i kr.</th><th>Vognnummer</th><th>Beløb</th>
+            <th>Dato</th><th class="num">Normal timer</th><th class="num">Overtid 1 time før</th>
+            <th class="num">Overtid 1-3 timer efter</th><th class="num">Øvrig overtid</th><th class="num">Total tid</th>
+            <th class="num">Total i kr.</th><th>Vognnummer</th><th class="num">Beløb</th>
           </tr></thead>
           <tbody>
             ${dayRows}
             <tr class="settlement-total-row">
-              <td colspan="6">Total løn for ${h(emp.employee_name)}</td>
+              <td>Total</td>
+              <td class="num">${fmtHM(sumHM("normal"))}</td>
+              <td class="num">${fmtHM(sumHM("ot_before"))}</td>
+              <td class="num">${fmtHM(sumHM("ot_13"))}</td>
+              <td class="num">${fmtHM(sumHM("ot_extra"))}</td>
+              <td class="num">${fmtDecimalComma(sumTotalHours)}</td>
               <td class="num">${fmtKr(emp.total_kr)}</td><td></td><td class="num">${fmtKr(emp.total_kr)}</td>
             </tr>
           </tbody>
