@@ -12,6 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from database.session import init_db
+from utils.test_env import is_test_env, test_data_source
 from routers import import_ddd, employees, activities, payroll_router, vehicles, employee_supplements, vagtplan_comments, payroll_settlement_router
 from routers import auth as auth_router
 from routers import users as users_router
@@ -124,6 +125,8 @@ async def index(request: Request):
         "app_js_mtime": mtime,
         "entra_tenant_id": ENTRA_TENANT_ID,
         "entra_client_id": ENTRA_CLIENT_ID,
+        "test_env": is_test_env(),
+        "test_data_source": test_data_source(),
     })
 
 

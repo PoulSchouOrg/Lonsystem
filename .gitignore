@@ -36,3 +36,7 @@ backup/arkiv/*
 /interne-dokumenter/
 /præsentation/
 docs/unpacked_*/
+
+# Testmiljø (deploy/testmiljo)
+app/database/TESTDATA_SOURCE.txt
+testmiljo.log
