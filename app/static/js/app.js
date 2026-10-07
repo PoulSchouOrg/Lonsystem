@@ -2839,6 +2839,12 @@ async function openManualActivityModal(empId = null, dateIso = null, opts = {}) 
 
   document.getElementById("manual-type").onchange = updateManualTypeVisibility;
   document.getElementById("manual-til-dato").onchange = updateManualTypeVisibility;
+  // "Til dato"-kalenderen skal åbne ved startdatoen i stedet for dags dato – min sættes
+  // lige før kalenderen åbnes, så den altid følger den aktuelle startdato.
+  document.getElementById("manual-til-dato").onmousedown =
+  document.getElementById("manual-til-dato").onfocus = function () {
+    this.min = document.getElementById("manual-start")?.querySelector(".dt-date")?.value || "";
+  };
   document.getElementById("manual-employee").onchange = () => {
     const t = document.getElementById("manual-type").value;
     if (t === "ferie" || t === "selvbetalt_fridag" || t === "loen_andet_sted_fra" || t === "eksport") applyFerieDefaults();
