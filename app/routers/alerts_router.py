@@ -4,7 +4,7 @@ i stedet for at hver type åbner sin egen popup ved login.
 
 Grupper:
 - mismatches: "Mulig fejl i løn" (elevløn-trin og anciennitet der er glemt)
-- raises:     "Lønstigninger" (kommende elevløn-trin og 9 måneders anciennitet)
+- raises:     "Kommende ændringer i overenskomst" (kommende elevløn-trin og 9 måneders anciennitet)
 - applied:    lønstigninger der lige er trådt i kraft
 - other:      "Øvrige" – nye satser, §56 og mærkedage. Vises 30 dage før, igen 7 dage før og
               på dagen (personlige indstillinger); "OK" skjuler kun til næste påmindelse.

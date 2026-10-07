@@ -112,10 +112,10 @@ Se `DATA_MODEL.md` for tabelstruktur og `CODEREF.md` for implementeringsdetaljer
   udfyldt, ellers fra ansættelsesdatoen. Ligger datoen inde i en lønperiode, gælder den nye sats hele perioden.
   Varsel før, godkend fra en lønperiode, 'Mulig fejl i løn' hvis det er glemt, efterregulering for låste perioder.
   Medarbejdere hvor den gamle anciennitetsadvarsel er afvist, springes over.
-- **Advarsler-oversigten** erstatter de enkelte popups: Mulig fejl i løn · Lønstigninger (elevløn + anciennitet) ·
+- **Advarsler-oversigten** erstatter de enkelte popups: Mulig fejl i løn · Kommende ændringer i overenskomst (elevløn + anciennitet) ·
   Øvrige (nye satser, §56, mærkedage). 🔔 i toppen viser antallet. Vinduet åbner kun af sig selv ved start, når der er
   nye advarsler.
-- **Personlige indstillinger** (⚙ Indstillinger): Lønstigninger – første besked (standard 30 dage før lønperioden) og
+- **Personlige indstillinger** (⚙ Indstillinger): Kommende ændringer i overenskomst – første besked (standard 30 dage før lønperioden) og
   påmind igen (7 dage, eller aldrig). Øvrige – første besked (højst 30 dage), anden besked (7 dage) og på dagen;
   "OK" skjuler kun til næste påmindelse. Man ser kun indstillinger for de advarsler rollen giver.
 
