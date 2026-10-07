@@ -98,7 +98,7 @@ Se `DATA_MODEL.md` for tabelstruktur og `CODEREF.md` for implementeringsdetaljer
 - EUD-lærlinge lønnes efter år af lærekontrakten, regnet **baglæns** fra slutdatoen: sidste år, næstsidste år, tredjesidste år. Alt før tredjesidste år får tredjesidste-satsen (overenskomsten har ikke flere trin).
 - Skifter eleven trin inde i en lønperiode, gælder den nye sats **hele lønperioden**.
 - Trinnene er overenskomsttyperne `Lærling (EUD) … af lærerkontrakt`. Systemet skifter aldrig selv: lønbogholderen får en popup (30 dage før lønperioden, påmind igen 7 dage før) og godkender, ændrer, udsætter eller bevarer satsen med en bemærkning. Et godkendt skift træder i kraft fra lønperiodens start; Lønkørsel bruger typen for perioden.
-- Afviger en elevs type fra trinnet i en åben periode, vises "Mulig fejl i elevløn" i popup og i Lønkørsel (eksporten blokeres ikke), indtil typen rettes eller bevares med en bemærkning.
+- Afviger en elevs type fra trinnet i en åben periode, vises "Mulig fejl i elevløn" i Advarsler (eksporten blokeres ikke), indtil typen rettes eller bevares med en bemærkning.
 - Voksenlærlinge (fyldt 25 ved aftalens indgåelse, § 8 stk. 4), EGU-elever og disponentspecialet har ingen trin.
 - Popups vises kun for roller hvor rettigheden *Godkend elevlønændring* er sat eksplicit (ikke via systemrollen).
 - Trykker en lønbogholder "Behandl", låses skiftet for de andre ("Behandles af …") i op til 15 minutter. Der kan kun være én åben beslutning pr. skift.
