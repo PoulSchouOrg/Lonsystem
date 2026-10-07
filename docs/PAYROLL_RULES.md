@@ -102,7 +102,7 @@ Se `DATA_MODEL.md` for tabelstruktur og `CODEREF.md` for implementeringsdetaljer
 - Voksenlærlinge (fyldt 25 ved aftalens indgåelse, § 8 stk. 4), EGU-elever og disponentspecialet har ingen trin.
 - Popups vises kun for roller hvor rettigheden *Godkend elevlønændring* er sat eksplicit (ikke via systemrollen).
 - Trykker en lønbogholder "Behandl", låses skiftet for de andre ("Behandles af …") i op til 15 minutter. Der kan kun være én åben beslutning pr. skift.
-- Perioden der lige er slut tjekkes altid (den køres typisk nu). Dialogen foreslår den første åbne lønperiode fra trinnets start. Er en periode allerede låst (eksporteret), vises beløbet der mangler ("skal efterreguleres") – regnet som forskellen i Lønafregningens "I alt" med den rigtige type – i dialogen, i Lønkørsel og i loggen. Efterreguleringen laves indtil videre manuelt i Danløn.
+- Kun den aktuelle lønperiode og perioden der lige er slut tjekkes (den køres typisk nu). Ældre åbne perioder tjekkes ikke, da systemet kun kender medarbejderens type i dag (ikke historikken). Dialogen foreslår den første åbne lønperiode fra trinnets start. Er en periode allerede låst (eksporteret), vises beløbet der mangler ("skal efterreguleres") – regnet som forskellen i Lønafregningens "I alt" med den rigtige type – i dialogen, i Lønkørsel og i loggen. Efterreguleringen laves indtil videre manuelt i Danløn.
 - Ændres en elevs datoer, voksenelev-markering eller overenskomsttype, annulleres åbne beslutninger automatisk (logges), og advarslen kommer igen med de rigtige datoer.
 - Alle beslutninger logges i audit-loggen med gammel → ny værdi.
 
