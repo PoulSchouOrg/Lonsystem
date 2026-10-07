@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PS Løn – Poul Schou A/S</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=27">
+  <link rel="stylesheet" href="/static/css/style.css?v=28">
   <script src="/static/js/msal-browser.min.js"></script>
   <script>
     const ENTRA_TENANT_ID = "{{ entra_tenant_id }}";
@@ -138,10 +138,12 @@
     <!-- ══════════════ ACTIVITIES VIEW ══════════════ -->
     <div class="view" data-view="activities">
 
-      <div class="period-bar">
-        <button id="btn-prev-period" class="period-nav-btn" title="Forrige periode">&#8249;</button>
-        <span id="period-label" class="period-label period-switch-label">Indlæser...</span>
-        <button id="btn-next-period" class="period-nav-btn" title="Næste periode">&#8250;</button>
+      <div class="period-bar period-bar-sticky">
+        <div class="period-switch">
+          <button id="btn-prev-period" class="period-nav-btn" title="Forrige lønperiode">&#8249;</button>
+          <span id="period-label" class="period-switch-label">Indlæser...</span>
+          <button id="btn-next-period" class="period-nav-btn" title="Næste lønperiode">&#8250;</button>
+        </div>
         <div id="period-date-picker" title="Hop til dato"></div>
         <div style="flex:1"></div>
         <div class="period-stats">
@@ -187,13 +189,15 @@
 
     <!-- ══════════════ PAYROLL VIEW ══════════════ -->
     <div class="view hidden" data-view="payroll">
-      <div class="toolbar" style="flex-wrap:nowrap">
-        <h2 style="font-size:16px;font-weight:600;white-space:nowrap">Lønkørsel</h2>
+      <div class="period-bar period-bar-sticky">
         <div class="period-switch" data-period-switch>
           <button class="period-nav-btn" data-period-move="prev" title="Forrige lønperiode">&#8249;</button>
           <span class="period-switch-label" data-period-label>Indlæser...</span>
           <button class="period-nav-btn" data-period-move="next" title="Næste lønperiode">&#8250;</button>
         </div>
+      </div>
+      <div class="toolbar" style="flex-wrap:nowrap">
+        <h2 style="font-size:16px;font-weight:600;white-space:nowrap">Lønkørsel</h2>
         <div class="spacer"></div>
         <button class="btn btn-secondary" onclick="openAdminModal()" data-perm-require="reopen_period">&#9881; Administration</button>
         <button class="btn btn-secondary" onclick="loadPayrollPreview()">&#128260; Opdater</button>
@@ -206,11 +210,7 @@
 
     <!-- ══════════════ PAYROLL SETTLEMENT VIEW ══════════════ -->
     <div class="view hidden" data-view="payroll-settlement">
-      <div class="toolbar" style="flex-wrap:wrap;gap:8px;align-items:center">
-        <h2 style="font-size:16px;font-weight:600;white-space:nowrap">Lønafregning</h2>
-        <div class="range-mode" data-range-mode="payroll-settlement">
-          <button type="button" data-mode="period" class="active">Lønperiode</button><button type="button" data-mode="custom">Vælg datoer</button>
-        </div>
+      <div class="period-bar period-bar-sticky">
         <div class="period-switch" data-period-switch>
           <button class="period-nav-btn" data-period-move="prev" title="Forrige lønperiode">&#8249;</button>
           <span class="period-switch-label" data-period-label>Indlæser...</span>
@@ -224,6 +224,16 @@
             <div id="settlement-to-dp" style="width:150px"></div>
           </label>
         </div>
+        <div class="range-mode" data-range-mode="payroll-settlement">
+          <button type="button" data-mode="period" class="active">Lønperiode</button><button type="button" data-mode="custom">Vælg datoer</button>
+        </div>
+        <div id="settlement-range-notice" class="range-notice hidden">
+          Viser de datoer du har valgt – følger ikke lønperioden.
+          <button class="btn btn-secondary" onclick="setRangeMode('payroll-settlement', 'period')">Tilbage til lønperiode</button>
+        </div>
+      </div>
+      <div class="toolbar" style="flex-wrap:wrap;gap:8px;align-items:center">
+        <h2 style="font-size:16px;font-weight:600;white-space:nowrap">Lønafregning</h2>
         <select id="settlement-filter-dispatcher-group" style="width:180px">
           <option value="">Alle disponentgrupper</option>
         </select>
@@ -236,20 +246,12 @@
                 data-perm-require="payroll_settlement_export"
                 title="Kræver at lønperioden er låst (medmindre du er administrator)">&#128190; Eksportér CSV</button>
       </div>
-<div id="settlement-range-notice" class="range-notice hidden">
-        Viser de datoer du har valgt – følger ikke lønperioden.
-        <button class="btn btn-secondary" onclick="setRangeMode('payroll-settlement', 'period')">Tilbage til lønperiode</button>
-      </div>
       <div id="settlement-preview-container"></div>
     </div>
 
     <!-- ══════════════ ABSENCE OVERVIEW VIEW ══════════════ -->
     <div class="view hidden" data-view="absence-overview">
-      <div class="toolbar" style="flex-wrap:wrap;gap:8px;align-items:center">
-        <h2 style="font-size:16px;font-weight:600;white-space:nowrap">Fraværsoversigt</h2>
-        <div class="range-mode" data-range-mode="absence-overview">
-          <button type="button" data-mode="period" class="active">Lønperiode</button><button type="button" data-mode="custom">Vælg datoer</button>
-        </div>
+      <div class="period-bar period-bar-sticky">
         <div class="period-switch" data-period-switch>
           <button class="period-nav-btn" data-period-move="prev" title="Forrige lønperiode">&#8249;</button>
           <span class="period-switch-label" data-period-label>Indlæser...</span>
@@ -263,14 +265,20 @@
             <div id="absence-to-dp" style="width:150px"></div>
           </label>
         </div>
+        <div class="range-mode" data-range-mode="absence-overview">
+          <button type="button" data-mode="period" class="active">Lønperiode</button><button type="button" data-mode="custom">Vælg datoer</button>
+        </div>
+        <div id="absence-range-notice" class="range-notice hidden">
+          Viser de datoer du har valgt – følger ikke lønperioden.
+          <button class="btn btn-secondary" onclick="setRangeMode('absence-overview', 'period')">Tilbage til lønperiode</button>
+        </div>
+      </div>
+      <div class="toolbar" style="flex-wrap:wrap;gap:8px;align-items:center">
+        <h2 style="font-size:16px;font-weight:600;white-space:nowrap">Fraværsoversigt</h2>
         <div class="spacer"></div>
         <button class="btn btn-secondary" onclick="loadAbsenceOverview()">&#128260; Opdater</button>
         <button class="btn btn-primary" onclick="exportAbsencePerEmployee()">&#128202; Eksporter per medarbejder</button>
         <button class="btn btn-secondary" onclick="exportAbsencePerType()">&#128202; Eksporter per fraværstype</button>
-      </div>
-<div id="absence-range-notice" class="range-notice hidden">
-        Viser de datoer du har valgt – følger ikke lønperioden.
-        <button class="btn btn-secondary" onclick="setRangeMode('absence-overview', 'period')">Tilbage til lønperiode</button>
       </div>
       <div id="absence-overview-container"></div>
     </div>

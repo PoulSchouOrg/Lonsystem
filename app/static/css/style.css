@@ -109,13 +109,14 @@ body {
 /* ── Period navigation ── */
 /* Fælles lønperiode-vælger: ‹ periode › (period_bar.js) */
 .period-switch { display: flex; align-items: center; gap: 6px; }
-.period-switch-label { flex: none; min-width: 190px; text-align: center; font-weight: 600; font-size: 14px; }
-.period-bar .period-switch-label { font-size: 15px; }
+.period-switch-label { flex: none; min-width: 200px; text-align: center; font-weight: 600; font-size: 15px; }
+/* Periodeboksen bliver i toppen, når man scroller (Aktiviteter, Lønkørsel, Lønafregning, Fraværsoversigt) */
+.period-bar-sticky { position: sticky; top: 52px; z-index: 50; flex-wrap: wrap; }
 .range-mode { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .range-mode button { border: none; background: var(--surface); padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; color: var(--text); }
 .range-mode button + button { border-left: 1px solid var(--border); }
 .range-mode button.active { background: #d4edcc; color: var(--primary-dark); font-weight: 600; }
-.range-notice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; padding: 8px 14px;
+.range-notice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-left: auto; padding: 6px 12px;
   background: #fff8e1; border: 1px solid #f0d68a; border-radius: var(--radius); font-size: 13px; }
 .period-bar {
   display: flex;
