@@ -248,6 +248,11 @@
       <div class="period-bar">
         <button id="btn-prev-vagtplan" class="period-nav-btn" title="Forrige uge">&#8249;</button>
         <span id="vagtplan-period-label" class="period-label">Indlæser...</span>
+        <span style="position:relative;display:inline-flex;margin-left:8px">
+          <button id="btn-vagtplan-calendar" class="btn btn-secondary" title="Vælg dato – vises som første uge">&#128197;</button>
+          <input type="date" id="vagtplan-date-picker" tabindex="-1" aria-hidden="true"
+                 style="position:absolute;left:0;bottom:0;width:100%;height:100%;opacity:0;pointer-events:none">
+        </span>
         <button id="btn-vagtplan-today" class="btn btn-secondary" style="margin:0 8px">I dag</button>
         <button id="btn-next-vagtplan" class="period-nav-btn" title="Næste uge">&#8250;</button>
       </div>

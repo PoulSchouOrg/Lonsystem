@@ -302,6 +302,12 @@ function jumpToVagtplanToday() {
   loadVagtplan();
 }
 
+// Valgt dato fra kalenderen: ugen der indeholder datoen bliver den FØRSTE af de 3 viste uger.
+function jumpToVagtplanDate(dateIso) {
+  state.vagtplan.weekStart = _isoOfDate(_mondayOf(new Date(dateIso + "T00:00:00")));
+  loadVagtplan();
+}
+
 function openVagtplanCommentModal(commentId) {
   const c = state.vagtplan.comments.find(x => x.id === commentId);
   if (!c) return;
@@ -6930,6 +6936,14 @@ async function init() {
   document.getElementById("btn-prev-vagtplan").addEventListener("click", () => navigateVagtplan("prev"));
   document.getElementById("btn-next-vagtplan").addEventListener("click", () => navigateVagtplan("next"));
   document.getElementById("btn-vagtplan-today").addEventListener("click", () => jumpToVagtplanToday());
+  document.getElementById("btn-vagtplan-calendar").addEventListener("click", () => {
+    const picker = document.getElementById("vagtplan-date-picker");
+    picker.value = state.vagtplan.weekStart || "";
+    try { picker.showPicker(); } catch { picker.focus(); picker.click(); }
+  });
+  document.getElementById("vagtplan-date-picker").addEventListener("change", e => {
+    if (e.target.value) jumpToVagtplanDate(e.target.value);
+  });
   document.getElementById("vagtplan-filter-employee").addEventListener("change", () => renderVagtplanTable());
   buildDatePicker("period-date-picker", "");
   document.getElementById("period-date-picker").style.width = "150px";
