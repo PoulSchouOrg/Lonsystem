@@ -1,7 +1,7 @@
 // ── Advarsler-oversigten (2026-10-06) ───────────────────────────────────────
 // Én oversigt med alle advarsler i stedet for en popup pr. type, og en klokke (🔔 + antal)
 // i toppen. Vinduet åbner kun af sig selv ved start, når der er NYE advarsler.
-// Grupper: Mulig fejl i løn · Lønstigninger (elevløn + anciennitet) · Øvrige.
+// Grupper: Mulig fejl i løn · Kommende ændringer i overenskomst (elevløn + anciennitet) · Øvrige.
 // "⚙ Indstillinger": hver bruger vælger selv, hvornår de får besked.
 
 const _ao = { data: null, actions: [] };
@@ -89,7 +89,7 @@ async function openAlertsOverview() {
     _aoGroup("error", "&#9888;", "Mulig fejl i løn", g.mismatches.map(m => _aoRow(m.employee_name, h(m.reason),
       [["Behandl", "btn-primary", () => _aoDecision(m)]],
       (m.locked_periods || []).map(l => "&#128274; " + h(l.text)).join("<br>"), m.claimed_by))),
-    _aoGroup("raise", "&#128200;", "Lønstigninger", [
+    _aoGroup("raise", "&#128200;", "Kommende ændringer i overenskomst", [
       // Ingen "Påmind mig ikke igen": lønstigninger skal behandles (Behold kræver bemærkning i dialogen)
       ...g.raises.map(u => _aoRow(u.employee_name, h(u.reason), [
         ["Påmind igen", "btn-secondary", () => _aoPost("/api/elev/snooze",
@@ -176,7 +176,7 @@ async function openAlertSettings() {
       Åbn Advarsler automatisk ved start, når der er nye advarsler</label>
       <div style="font-size:12px;color:var(--text-light);margin-top:2px">Slået fra: advarslerne vises kun i &#128276;.</div></div>
     ${s.sections.raises ? `
-      <h3 style="font-size:14px;margin-bottom:8px">&#128200; Lønstigninger</h3>
+      <h3 style="font-size:14px;margin-bottom:8px">&#128200; Kommende ændringer i overenskomst</h3>
       <div class="form-group"><label>Første besked (dage før lønperioden med stigningen)</label>${num("as-rn", s.raise_notice_days, 365)}</div>
       <div class="form-group"><label>Påmind igen (dage før) – tom = aldrig</label>${num("as-rr", s.raise_remind_days, 365)}</div>` : ""}
     ${s.sections.other ? `
