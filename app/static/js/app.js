@@ -220,6 +220,8 @@ function closeAllModals() {
 // ── Navigation ─────────────────────────────────────────────────────────────
 function setView(view) {
   state.currentView = view;
+  // Fanen huskes i adressen (#fane), så en genindlæsning bliver på samme fane
+  try { history.replaceState(null, "", "#" + view); } catch (_) {}
   document.querySelectorAll(".sidebar-item").forEach(el =>
     el.classList.toggle("active", el.dataset.view === view));
   document.querySelectorAll(".view").forEach(el =>
@@ -870,6 +872,7 @@ function renderPeriodBar() {
   document.getElementById("stat-deact").textContent    = `${p.period.deactivated} deaktiveret`;
   setDatePicker("period-date-picker", p.period.start_date);
   updateStatChipActive();
+  renderPeriodSwitches();   // samme periode på Lønkørsel/Lønafregning/Fraværsoversigt (period_bar.js)
 }
 
 function updateStatChipActive() {
@@ -4815,8 +4818,6 @@ function renderPayrollPreview(data) {
   state.payrollData = data;
   state.hasUnresolvedPending = !!data.has_unresolved_pending;
   state.periodClosed = data.period_status === "closed";
-  document.getElementById("payroll-period-label").textContent =
-    `${formatDateShort(data.period_start)} – ${formatDateShort(data.period_end)}`;
   const koerLoenBtn = document.getElementById("btn-koer-loen");
   if (koerLoenBtn) koerLoenBtn.classList.toggle("btn-muted", state.hasUnresolvedPending || state.periodClosed);
 
@@ -5034,13 +5035,8 @@ function settlementDispatcherGroupFilterChanged() {
 }
 
 async function loadPayrollSettlement() {
-  // Default Fra/Til til den lønperiode aktivitetsoversigten viser – ligesom
-  // Fraværsoversigt (bekræftet af bruger 2026-09-04). Ændres kun hvis felterne
-  // er tomme, så brugerens eget valgte interval ikke overskrives ved "Opdater".
-  if (!readDatePicker("settlement-from-dp") && state.periodInfo) {
-    setDatePicker("settlement-from-dp", state.periodInfo.period.start_date);
-    setDatePicker("settlement-to-dp",   state.periodInfo.period.end_date);
-  }
+  // Fra/Til følger den valgte lønperiode, medmindre "Vælg datoer" er slået til (period_bar.js)
+  usePeriodRange("payroll-settlement");
   setLoading(true);
   try {
     fillSettlementDispatcherGroupFilter();
@@ -5144,9 +5140,12 @@ function renderPayrollSettlement(data) {
     if (emp.springer_enabled) {
       headlineParts.push(`Springertillæg: ${emp.springer_rate.toFixed(2)} kr/t`);
     }
-    const dayRows = emp.days.map(day => {
+    // Tyk linje over første række i hver ny uge (mandag) – kun visning, CSV uændret
+    const dayRows = emp.days.map((day, i) => {
       const vognnummer = day.absence_type || day.vehicle_number || "";
-      return `<tr>
+      const newWeek = i > 0 && day.date !== emp.days[i - 1].date
+        && new Date(day.date + "T12:00:00").getDay() === 1;
+      return `<tr${newWeek ? ' class="week-start"' : ""}>
         <td>${formatDate(day.date)}</td>
         <td class="num">${fmtHM(day.normal)}</td>
         <td class="num">${fmtHM(day.ot_before)}</td>
@@ -5228,10 +5227,7 @@ async function confirmExportSettlementCsv() {
 
 // ── Absence Overview ──────────────────────────────────────────────────────
 async function loadAbsenceOverview() {
-  if (!readDatePicker("absence-from-dp") && state.periodInfo) {
-    setDatePicker("absence-from-dp", state.periodInfo.period.start_date);
-    setDatePicker("absence-to-dp",   state.periodInfo.period.end_date);
-  }
+  usePeriodRange("absence-overview");   // se period_bar.js
   setLoading(true);
   try {
     const from = readDatePicker("absence-from-dp");
@@ -7176,7 +7172,9 @@ async function loadApp() {
   applyAutoApprovalVisibility();
 
   await loadAbsenceTypes();
-  await setView(_firstPermittedView());
+  // Lønperioden hentes før første fane, så alle faner (ikke kun Aktiviteter) kender den
+  try { if (!state.periodInfo) await loadPeriodInfo(); } catch (e) { console.error(e); }
+  await setView(_startView());
   // Alle advarsler i én oversigt (static/js/alerts_overview.js) i stedet for en popup pr. type
   await checkAllAlerts();
 }
@@ -7192,6 +7190,20 @@ function _firstPermittedView() {
     if (el.dataset.view !== "activities") return el.dataset.view;
   }
   return "activities";
+}
+
+// Fanen fra adressen (#fane) hvis brugeren har adgang til den, ellers første tilladte
+function _startView() {
+  const wanted = decodeURIComponent(location.hash.slice(1));
+  for (const el of document.querySelectorAll(".sidebar-item[data-view]")) {
+    if (el.dataset.view !== wanted) continue;
+    const section = el.closest(".sidebar-section[data-perm-require]");
+    if (section && !_hasPerm(section.dataset.permRequire)) break;
+    if (el.dataset.permRequire && !_hasPerm(el.dataset.permRequire)) break;
+    if (wanted === "activities" && !_hasPerm("view_calendar")) break;
+    return wanted;
+  }
+  return _firstPermittedView();
 }
 
 function applyAutoApprovalVisibility() {
@@ -7224,6 +7236,7 @@ async function init() {
   buildDatePicker("absence-to-dp", "");
   buildDatePicker("settlement-from-dp", "");
   buildDatePicker("settlement-to-dp", "");
+  initPeriodSwitches();
   document.getElementById("filter-status").addEventListener("change", () => { updateStatChipActive(); renderActivitiesTable(); });
   document.getElementById("filter-employee").addEventListener("change", renderActivitiesTable);
   document.getElementById("filter-dispatcher-group").addEventListener("change", () => { fillEmployeeFilter(); renderActivitiesTable(); });

@@ -107,6 +107,16 @@ body {
 }
 
 /* ── Period navigation ── */
+/* Fælles lønperiode-vælger: ‹ periode › (period_bar.js) */
+.period-switch { display: flex; align-items: center; gap: 6px; }
+.period-switch-label { flex: none; min-width: 190px; text-align: center; font-weight: 600; font-size: 14px; }
+.period-bar .period-switch-label { font-size: 15px; }
+.range-mode { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.range-mode button { border: none; background: var(--surface); padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; color: var(--text); }
+.range-mode button + button { border-left: 1px solid var(--border); }
+.range-mode button.active { background: #d4edcc; color: var(--primary-dark); font-weight: 600; }
+.range-notice { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; padding: 8px 14px;
+  background: #fff8e1; border: 1px solid #f0d68a; border-radius: var(--radius); font-size: 13px; }
 .period-bar {
   display: flex;
   align-items: center;
@@ -714,6 +724,7 @@ input[type="time"]::-webkit-outer-spin-button {
 .settlement-table th.num { text-align: right; }
 .settlement-table tbody tr:nth-child(even):not(.settlement-total-row) td { background: #f6f7f9; }
 .settlement-table tr:last-child td { border-bottom: none; }
+.settlement-table tr.week-start td { border-top: 3px solid #9bb59a; }
 .settlement-table tr.settlement-total-row td { font-weight: 700; background: #f0fdf4; }
 
 /* ── Alert banner ── */
