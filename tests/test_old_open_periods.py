@@ -53,3 +53,15 @@ def test_wrong_type_today_is_still_flagged(db, employee):
     db.commit()
     [m] = alerts(current_user=user, db=db, today=TODAY)["mismatches"]
     assert m["expected_type"] == SECOND and m["period_start"] >= date(2026, 9, 21)
+
+
+def test_second_production_case_last_year_old_2024_period(db, employee):
+    """Produktion 2026-10-07: kontrakt 1/7-2024–31/12-2026, 'Sidste år' i dag (rigtigt), men advarsel om
+    lønperioden 7.–20. oktober 2024 (aldrig låst) med 2025-satser."""
+    from routers.elev_router import alerts
+    user = _setup(db, employee, ["elev_wage_approve"])
+    db.add(PayPeriod(start_date=date(2024, 10, 7), end_date=date(2024, 10, 20), status=PayPeriodStatus.open))
+    employee.elev, employee.elev_start_date, employee.elev_end_date = True, date(2024, 7, 1), date(2026, 12, 31)
+    employee.agreement_type = LAST
+    db.commit()
+    assert alerts(current_user=user, db=db, today=TODAY)["mismatches"] == []
