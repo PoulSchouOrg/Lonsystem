@@ -282,6 +282,7 @@ async function loadVagtplan() {
     const [activities, comments] = await Promise.all([
       GET(`/api/activities?date_from=${dateFrom}&date_to=${dateTo}`),
       GET(`/api/vagtplan-comments?date_from=${dateFrom}&date_to=${dateTo}`),
+      loadHolidaysForPeriod(dateFrom, dateTo),
     ]);
     state.vagtplan.activities = activities.filter(a => a.activity_type !== "normal" && !a.hidden_from_vagtplan);
     state.vagtplan.comments = comments;
@@ -431,9 +432,17 @@ function renderVagtplanTable() {
   let dayRow = `<th>Chauffør</th>` + days.map(d => {
     const iso = _isoOfDate(d);
     const cls = iso === todayIso ? "today" : "";
-    return `<th class="${cls}">
+    // Helligdage markeres som i Aktivitetsoversigten (renderActivitiesTable).
+    const hol  = state.holidays.find(x => x.date === iso);
+    const bg   = hol ? (cls === "today" ? `background:#056a10;border-bottom:3px solid var(--accent);` : `background:#056a10;`) : "";
+    const half = hol?.half_day_from
+      ? `<span style="font-size:10px;display:block;color:#fff;margin-top:1px">½ fra ${hol.half_day_from}</span>`
+      : "";
+    const tip  = hol ? `title="${h(hol.name)}"` : "";
+    return `<th class="${cls}" style="${bg}" ${tip}>
       <span class="day-name">${DAY_NAMES[(d.getDay() + 6) % 7]}</span>
       <span class="day-date">${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}</span>
+      ${half}
     </th>`;
   }).join("");
   head.innerHTML = `<tr>${weekRow}</tr><tr>${dayRow}</tr>`;
