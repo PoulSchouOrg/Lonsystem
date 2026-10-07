@@ -77,6 +77,7 @@ const PERMISSION_LABELS = {
   view_cpr:            "Se CPR-nummer",
   jubilee_alert:       "Jubilæumsadvarsel",
   elev_alert:          "Elevadvarsel",
+  elev_wage_approve:   "Godkend elevlønændring",
   birthday_alert:      "Fødselsdagsadvarsel",
   employee_table_view: "Tabelvisning af medarbejdere",
   employee_export:     "Eksportér medarbejderregister",
@@ -114,6 +115,7 @@ const PERMISSION_DESCRIPTIONS = {
   view_cpr:            "Kan se hele CPR-nummeret. Uden rettigheden vises de sidste fire cifre som ****.",
   jubilee_alert:       "Får en popup en måned før en medarbejders 25-, 40- og 50-års jubilæum.",
   elev_alert:          "Får en popup en måned før en elevs slutdato.",
+  elev_wage_approve:   "Ser elevoversigten, får besked når en elev skifter løntrin, og godkender eller afviser ændringen. Popups kun når rettigheden er sat på rollen.",
   birthday_alert:      "Får en popup en måned før en medarbejders runde fødselsdag (10, 20, 30 …).",
   employee_table_view: "Kan skifte medarbejderregisteret til tabelvisning.",
   employee_export:     "Kan eksportere medarbejderregisterets tabel til Excel.",
@@ -3837,6 +3839,7 @@ async function openNewEmployeeModal() {
   document.getElementById("emp-cpr-hint").style.display = "none";
   document.getElementById("emp-personaleforening").checked = true;
   document.getElementById("emp-elev").checked = false;
+  document.getElementById("emp-voksenelev").checked = false;
   document.getElementById("emp-natarbejde").checked = false;
   buildDatePicker("emp-elev-start", "");
   buildDatePicker("emp-elev-end", "");
@@ -3849,6 +3852,7 @@ async function openNewEmployeeModal() {
   buildScheduleTable(null);
   await _loadEmpCvrDropdown(null);
   document.getElementById("emp-active-supplement").value = "";
+  showElevClaimNote(null);
   openModal("modal-employee");
 }
 
@@ -3898,6 +3902,7 @@ async function openEditEmployee(id) {
   document.getElementById("emp-cpr-hint").style.display = (e.cpr_number || "").endsWith("****") ? "" : "none";
   document.getElementById("emp-personaleforening").checked = e.personaleforening;
   document.getElementById("emp-elev").checked = e.elev;
+  document.getElementById("emp-voksenelev").checked = !!e.voksenelev;
   document.getElementById("emp-natarbejde").checked = e.natarbejde_tillaeg;
   buildDatePicker("emp-elev-start", e.elev_start_date || "");
   buildDatePicker("emp-elev-end", e.elev_end_date || "");
@@ -3915,6 +3920,7 @@ async function openEditEmployee(id) {
       document.getElementById("emp-active-supplement").value = "";
     }
   }
+  showElevClaimNote(id);   // static/js/elev.js
   openModal("modal-employee");
 }
 
@@ -3963,6 +3969,7 @@ async function confirmEmployee() {
     elev: document.getElementById("emp-elev").checked,
     elev_start_date: document.getElementById("emp-elev").checked ? (readDatePicker("emp-elev-start") || null) : null,
     elev_end_date: document.getElementById("emp-elev").checked ? (readDatePicker("emp-elev-end") || null) : null,
+    voksenelev: document.getElementById("emp-elev").checked && document.getElementById("emp-voksenelev").checked,
     natarbejde_tillaeg: document.getElementById("emp-natarbejde").checked,
   };
   const isFunktionaer = body.agreement_kind === FUNKTIONAER;
@@ -4571,6 +4578,7 @@ function renderPayrollPreview(data) {
     warn.innerHTML = `<span class="icon">⚠️</span><div class="text"><h4>Afventende aktiviteter</h4>Der er aktiviteter, der afventer handling. Før lønnen kan køres, skal alle aktiviteter enten godkendes eller deaktiveres. Kun godkendte aktiviteter tæller med i lønnen.</div>`;
     container.appendChild(warn);
   }
+  renderElevWarnings(container, data.elev_warnings);   // static/js/elev.js
 
   data.employees.sort((a, b) => (a.employee_name || "").localeCompare(b.employee_name || "", "da"));
   let any = false;
@@ -5780,6 +5788,7 @@ async function loadStamdataAgreementTypes() {
       tbody.innerHTML = `<tr><td colspan="3" style="padding:20px;text-align:center;color:var(--text-light)">Ingen overenskomsttyper oprettet endnu</td></tr>`;
       return;
     }
+    loadFutureRates();   // static/js/agreement_rates.js
     tbody.innerHTML = rows.map((r, i) => `
       <tr style="border-bottom:1px solid var(--border);background:${i % 2 === 0 ? "#fff" : "var(--bg)"}">
         <td style="padding:10px 14px">${h(r.name)}</td>
@@ -6904,9 +6913,8 @@ async function loadApp() {
 
   await loadAbsenceTypes();
   await setView(_firstPermittedView());
-  await checkAnciennitetsAlerts();
-  await checkParagraf56Alerts();
-  await checkMilestoneAlerts();
+  // Alle advarsler i én oversigt (static/js/alerts_overview.js) i stedet for en popup pr. type
+  await checkAllAlerts();
 }
 
 // Første menupunkt brugeren har adgang til – Aktiviteter hvis 'Se aktivitetskalender',
@@ -6969,10 +6977,21 @@ async function init() {
   document.getElementById("vehicle-search")?.addEventListener("input", renderVehicleList);
   document.getElementById("supplement-employee-search")?.addEventListener("input", renderSupplementEmployeeList);
 
-  document.querySelectorAll(".modal-overlay").forEach(overlay => {
-    overlay.addEventListener("click", e => {
-      if (e.target === overlay) overlay.classList.remove("open");
-    });
+  // Klik på den mørke baggrund lukker vinduet – men kun hvis musen også blev TRYKKET ned på
+  // baggrunden. Ellers lukkede vinduet (og input gik tabt), når man markerede tekst i et felt
+  // og slap musen uden for vinduet (2026-10-06). Lyttes på dokumentet, så det også gælder
+  // vinduer der oprettes senere (fx Advarsler). Har vinduet en _onClose, bruges den i stedet.
+  let pressedOverlay = null;
+  document.addEventListener("mousedown", e => {
+    pressedOverlay = e.target.classList?.contains("modal-overlay") ? e.target : null;
+  });
+  document.addEventListener("click", e => {
+    const overlay = e.target;
+    if (overlay.classList?.contains("modal-overlay") && overlay === pressedOverlay) {
+      if (overlay._onClose) overlay._onClose();
+      else overlay.classList.remove("open");
+    }
+    pressedOverlay = null;
   });
 
   const loggedIn = await initAuth();

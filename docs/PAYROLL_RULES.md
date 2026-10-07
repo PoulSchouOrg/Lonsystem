@@ -86,6 +86,39 @@ Se `DATA_MODEL.md` for tabelstruktur og `CODEREF.md` for implementeringsdetaljer
 
 ---
 
+## Daterede satser (fra 2026-10-06)
+- Fremtidige satser lægges ind i Stamdata › Overenskomsttyper › *Fremtidige satser* (type, ny timesats, gælder fra).
+- Satsen for en lønperiode er satsen der gælder på periodens **sidste dag**: ligger datoen inde i perioden, får hele perioden den nye sats (fx 1/3-2027 → perioden 22/2–7/3-2027).
+- Når datoen nås, bliver den nye sats typens nuværende sats; den gamle gemmes, så ældre perioder regnes uændret.
+- Fremtidige satser kan rettes og slettes (logges med alle værdier); satser der er trådt i kraft er låst historik.
+- Roller med *Lønkørsel* sat eksplicit får en popup X dage før lønperioden med de nye satser (samme varsel som elevløn).
+- Lærlingeoverenskomstens satser (lærlinge, disponentspecialet, EGU) for 1/5-2025, 1/3-2026 og 1/3-2027 er lagt ind én gang ved opstart.
+
+## Elevløn-trin (Lærlingeoverenskomsten 2025-2028 § 8, fra 2026-10-06)
+- EUD-lærlinge lønnes efter år af lærekontrakten, regnet **baglæns** fra slutdatoen: sidste år, næstsidste år, tredjesidste år. Alt før tredjesidste år får tredjesidste-satsen (overenskomsten har ikke flere trin).
+- Skifter eleven trin inde i en lønperiode, gælder den nye sats **hele lønperioden**.
+- Trinnene er overenskomsttyperne `Lærling (EUD) … af lærerkontrakt`. Systemet skifter aldrig selv: lønbogholderen får en popup (30 dage før lønperioden, påmind igen 7 dage før) og godkender, ændrer, udsætter eller bevarer satsen med en bemærkning. Et godkendt skift træder i kraft fra lønperiodens start; Lønkørsel bruger typen for perioden.
+- Afviger en elevs type fra trinnet i en åben periode, vises "Mulig fejl i elevløn" i popup og i Lønkørsel (eksporten blokeres ikke), indtil typen rettes eller bevares med en bemærkning.
+- Voksenlærlinge (fyldt 25 ved aftalens indgåelse, § 8 stk. 4), EGU-elever og disponentspecialet har ingen trin.
+- Popups vises kun for roller hvor rettigheden *Godkend elevlønændring* er sat eksplicit (ikke via systemrollen).
+- Trykker en lønbogholder "Behandl", låses skiftet for de andre ("Behandles af …") i op til 15 minutter. Der kan kun være én åben beslutning pr. skift.
+- Perioden der lige er slut tjekkes altid (den køres typisk nu). Dialogen foreslår den første åbne lønperiode fra trinnets start. Er en periode allerede låst (eksporteret), vises beløbet der mangler ("skal efterreguleres") – regnet som forskellen i Lønafregningens "I alt" med den rigtige type – i dialogen, i Lønkørsel og i loggen. Efterreguleringen laves indtil videre manuelt i Danløn.
+- Ændres en elevs datoer, voksenelev-markering eller overenskomsttype, annulleres åbne beslutninger automatisk (logges), og advarslen kommer igen med de rigtige datoer.
+- Alle beslutninger logges i audit-loggen med gammel → ny værdi.
+
+## Lønstigninger og Advarsler-oversigten (fra 2026-10-06)
+- **9 måneders anciennitet** behandles som elevløn-trin: når en medarbejder når 9 måneder, foreslås skift fra
+  '<type>' til '<type>. 9 mdr anciennitet' (hvis typen findes). Der tælles fra **anciennitetsdatoen**, hvis den er
+  udfyldt, ellers fra ansættelsesdatoen. Ligger datoen inde i en lønperiode, gælder den nye sats hele perioden.
+  Varsel før, godkend fra en lønperiode, 'Mulig fejl i løn' hvis det er glemt, efterregulering for låste perioder.
+  Medarbejdere hvor den gamle anciennitetsadvarsel er afvist, springes over.
+- **Advarsler-oversigten** erstatter de enkelte popups: Mulig fejl i løn · Lønstigninger (elevløn + anciennitet) ·
+  Øvrige (nye satser, §56, mærkedage). 🔔 i toppen viser antallet. Vinduet åbner kun af sig selv ved start, når der er
+  nye advarsler.
+- **Personlige indstillinger** (⚙ Indstillinger): Lønstigninger – første besked (standard 30 dage før lønperioden) og
+  påmind igen (7 dage, eller aldrig). Øvrige – første besked (højst 30 dage), anden besked (7 dage) og på dagen;
+  "OK" skjuler kun til næste påmindelse. Man ser kun indstillinger for de advarsler rollen giver.
+
 ## Anciennitet
 
 - Beregnes automatisk fra `hire_date`

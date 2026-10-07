@@ -23,7 +23,6 @@ from database.session import get_db
 
 from calculators.overtime import OT_13_KEY, OT_BEFORE_KEY, OT_EXTRA_KEY
 from calculators.pay_period import get_or_create_period_for_date
-from calculators.rates_loader import load_agreement_types_from_db
 
 from routers.payroll_router import _active_employees, _calculate_employee
 
@@ -189,7 +188,7 @@ def _employee_settlement_data(emp, start: date, end: date, db: Session) -> dict:
     oven på den fælles _calculate_employee()-beregning (samme datakilde som Lønkørsel)."""
     calc = _calculate_employee(emp, start, end, db)
 
-    agreement_rate = load_agreement_types_from_db(db).get(emp.agreement_type, Decimal("0"))
+    agreement_rate = Decimal(str(calc["base_hourly_rate"]))   # satsen for perioden
     # Vægtet gennemsnit over periodens normaltimer (flere tillæg summeres dag for dag).
     personal_supplement_rate = Decimal(str(calc["supplement_rate"]))
 

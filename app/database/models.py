@@ -117,6 +117,8 @@ class Employee(Base):
     elev = Column(Boolean, default=False, nullable=False)
     elev_start_date = Column(Date, nullable=True)
     elev_end_date = Column(Date, nullable=True)
+    # Voksenlærling (§ 8 stk. 4): almindelig overenskomstløn, ingen elevløn-trin
+    voksenelev = Column(Boolean, default=False, nullable=False)
     personaleforening = Column(Boolean, default=True, nullable=False)
     natarbejde_tillaeg = Column(Boolean, default=False, nullable=False)  # kun til filtrering
 
@@ -438,6 +440,40 @@ class MasterAgreementType(Base):
     hourly_rate = Column(Numeric(10, 2), nullable=False)
 
 
+class MasterAgreementTypeRate(Base):
+    """Sats for en overenskomsttype fra en bestemt dato (2026-10-06). Fremtidige rækker
+    træder i kraft automatisk; old_rate gemmes så ældre lønperioder regnes rigtigt."""
+    __tablename__ = "master_agreement_type_rates"
+
+    id = Column(Integer, primary_key=True)
+    agreement_type_id = Column(Integer, ForeignKey("master_agreement_types.id"), nullable=False, index=True)
+    valid_from = Column(Date, nullable=False)
+    hourly_rate = Column(Numeric(10, 2), nullable=False)
+    old_rate = Column(Numeric(10, 2), nullable=True)
+    applied_at = Column(DateTime, nullable=True)
+    note = Column(Text, nullable=True)               # begrundelse, fx "Lokal lønaftale"
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    agreement_type = relationship("MasterAgreementType")
+
+    __table_args__ = (
+        UniqueConstraint("agreement_type_id", "valid_from", name="uq_agreement_type_rate_date"),
+    )
+
+
+class UserAlertDismissal(Base):
+    """'OK' på en fælles advarsel (fx nye overenskomstsatser) – pr. bruger."""
+    __tablename__ = "user_alert_dismissals"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("app_users.id"), nullable=False)
+    key = Column(String(50), nullable=False)
+    dismissed_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_user_alert_dismissal"),)
+
+
 class MasterAgreementKind(Base):
     __tablename__ = "master_agreement_kinds"
 
@@ -632,3 +668,53 @@ class EmployeePayrollReadyFlag(Base):
     __table_args__ = (
         Index("uq_employee_payroll_ready_flags_emp_period", "employee_id", "pay_period_id", unique=True),
     )
+
+
+class ElevStepDecision(Base):
+    """Lønbogholderens beslutning om et elevløn-trinskift (2026-10-06).
+    decision="approve": overenskomsttypen skiftes fra effective_from (en lønperiodes
+    startdato). decision="keep": typen bevares bevidst (note påkrævet)."""
+    __tablename__ = "elev_step_decisions"
+
+    id = Column(Integer, primary_key=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    event_date = Column(Date, nullable=False)        # dagen eleven går ind i det nye år
+    decision = Column(String(10), nullable=False)    # "approve" | "keep"
+    kind = Column(String(20), nullable=False, default="elev", server_default="elev")  # "elev" | "anciennitet"
+    from_type = Column(String(200), nullable=True)
+    to_type = Column(String(200), nullable=True)
+    effective_from = Column(Date, nullable=True)     # lønperiodens startdato
+    note = Column(Text, nullable=True)
+    decided_by = Column(String, nullable=False)
+    decided_at = Column(DateTime, server_default=func.now())
+    applied_at = Column(DateTime, nullable=True)     # sat når medarbejderens type er skiftet
+
+    employee = relationship("Employee")
+
+
+class ElevStepClaim(Base):
+    """'Behandles af ...' – kun én lønbogholder ad gangen behandler et elevløn-trinskift.
+    Den unikke nøgle gør at to samtidige godkendelser ikke kan lade sig gøre."""
+    __tablename__ = "elev_step_claims"
+
+    id = Column(Integer, primary_key=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    event_date = Column(Date, nullable=False)
+    user_id = Column(Integer, ForeignKey("app_users.id"), nullable=False)
+    initials = Column(String(10), nullable=False)
+    claimed_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (UniqueConstraint("employee_id", "event_date", name="uq_elev_step_claim"),)
+
+
+class UserAlertSettings(Base):
+    """Personlige indstillinger for advarsler (2026-10-06). Mangler rækken, bruges standardværdierne."""
+    __tablename__ = "user_alert_settings"
+
+    user_id = Column(Integer, ForeignKey("app_users.id"), primary_key=True)
+    raise_notice_days = Column(Integer, nullable=False, default=30)    # lønstigninger: dage før lønperioden
+    raise_remind_days = Column(Integer, nullable=True, default=7)      # påmind igen (None = aldrig)
+    other_first_days = Column(Integer, nullable=False, default=30)     # øvrige: første påmindelse
+    other_second_days = Column(Integer, nullable=True, default=7)      # øvrige: anden påmindelse (None = ingen)
+    other_on_day = Column(Boolean, nullable=False, default=True)       # øvrige: på dagen
+    auto_open = Column(Boolean, nullable=False, default=True)          # åbn oversigten selv ved start

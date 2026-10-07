@@ -172,10 +172,11 @@ import routers.payroll_router as payroll_router
 def test_calculate_employee_raises_when_rate_lookup_fails(db, employee, monkeypatch):
     """Hvis timeløns-opslaget fejler, skal det give en synlig 500-fejl —
     ikke stille beregne 0 kr. i løn for medarbejderen (se payroll_router.py)."""
-    def _boom(_db):
+    def _boom(*_args):
         raise RuntimeError("databasen er midlertidigt utilgængelig")
 
-    monkeypatch.setattr(payroll_router, "load_agreement_types_from_db", _boom)
+    # Satsen slås op pr. periode siden 2026-10-06 (daterede satser)
+    monkeypatch.setattr(payroll_router, "agreement_rate_for_period", _boom)
 
     with pytest.raises(HTTPException) as exc_info:
         payroll_router._calculate_employee(employee, date(2026, 1, 1), date(2026, 1, 31), db)

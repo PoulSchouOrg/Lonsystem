@@ -40,11 +40,12 @@ from calculators.day_type import (
     compute_sh_hours,
     calculate_special_day_overtime,
 )
-from calculators.pay_period import get_or_create_period_for_date, is_even_week
+from calculators.agreement_rates import agreement_rate_for_period, apply_due_rates
+from calculators.elev_agreement import agreement_type_for_period
+from calculators.pay_period import get_or_create_period_for_date, is_even_week, period_start_for_date
 from calculators.vehicle_uses import clipped_vehicle_uses, vehicle_assignment_intervals
 import logging as _logging
 from calculators.rates_loader import (
-    load_agreement_types_from_db,
     load_overtime_rates_from_db,
     load_salt_supplement_rate_from_db,
     load_overnight_rate_from_db,
@@ -295,7 +296,8 @@ WEEKLY_FLEX_NORMAL_MAX = Decimal("37")
 WEEKLY_FLEX_OT13_MAX = Decimal("5")
 
 
-def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> dict:
+def _calculate_employee(emp: Employee, start: date, end: date, db: Session,
+                        agreement_type: Optional[str] = None) -> dict:
     """Beregn timefordeling og kr. for én medarbejder i et datointerval.
     Alle dage i perioden medtages – dage uden aktivitet vises som 0,
     fraværsdage vises med typenavn (beregning tilføjes senere)."""
@@ -327,7 +329,11 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
     )
 
     try:
-        base_hourly_rate = load_agreement_types_from_db(db).get(emp.agreement_type, Decimal("0"))
+        # Elevløn-trin: et godkendt skift gælder fra en lønperiodes start (hele perioden)
+        # agreement_type angives kun ved efterregulering ("hvad hvis typen havde været rigtig")
+        agreement_type = agreement_type or agreement_type_for_period(db, emp, period_start_for_date(start))
+        # Daterede satser (2026-10-06): satsen der gælder på periodens sidste dag
+        base_hourly_rate = agreement_rate_for_period(db, agreement_type, start, end)
     except Exception as e:
         _logging.error(f"Timeløn kunne ikke indlæses for {emp.first_name} {emp.last_name} (id={emp.id}): {e}")
         raise HTTPException(500, f"Timeløn kunne ikke indlæses for {emp.first_name} {emp.last_name} – kontakt administrator")
@@ -851,7 +857,7 @@ def _calculate_employee(emp: Employee, start: date, end: date, db: Session) -> d
         "employee_number":    emp.employee_number,
         "employee_name":      emp.name,
         "email":              emp.email,
-        "agreement_type":     emp.agreement_type,
+        "agreement_type":     agreement_type,
         "hourly_rate":        float(_avg_rate("normal")),
         "hourly_rates":       {k: float(_avg_rate(k)) for k in _HOURLY_RATE_KEYS},
         "base_hourly_rate":   float(base_hourly_rate),
@@ -916,6 +922,7 @@ def payroll_preview(period_start: Optional[str] = None,
                     current_user: AppUser = Depends(_payroll_access),
                     db: Session = Depends(get_db)):
     period = _resolve_period(period_start, db)
+    apply_due_rates(db, date.today())
     employees = _active_employees(db)
     results = [_calculate_employee(e, period.start_date, period.end_date, db) for e in employees]
     # 'I alt' pr. medarbejder regnes præcis som i Lønafregning (bekræftet af
@@ -929,7 +936,14 @@ def payroll_preview(period_start: Optional[str] = None,
         "period_status": period.status.value,
         "employees": results,
         "has_unresolved_pending": any(r["has_pending"] for r in results),
+        "elev_warnings": _elev_warnings(period, db),
     }
+
+
+def _elev_warnings(period, db: Session) -> list:
+    """Mulige fejl i elevløn-trin for perioden (vises i Lønkørsel, blokerer ikke eksport)."""
+    from calculators.elev_agreement import mismatches
+    return mismatches(db, date.today(), [period.start_date])
 
 
 def _build_proevekoersel_workbook(employees, period, db):

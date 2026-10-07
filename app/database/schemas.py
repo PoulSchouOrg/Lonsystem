@@ -64,6 +64,7 @@ class EmployeeCreate(BaseModel):
     elev: bool = False
     elev_start_date: Optional[date] = None
     elev_end_date: Optional[date] = None
+    voksenelev: bool = False
     personaleforening: bool = True
     natarbejde_tillaeg: bool = False
 
@@ -102,6 +103,7 @@ class EmployeeUpdate(BaseModel):
     elev: Optional[bool] = None
     elev_start_date: Optional[date] = None
     elev_end_date: Optional[date] = None
+    voksenelev: Optional[bool] = None
     personaleforening: Optional[bool] = None
     natarbejde_tillaeg: Optional[bool] = None
 
@@ -149,6 +151,7 @@ class EmployeeResponse(BaseModel):
     elev: bool = False
     elev_start_date: Optional[date] = None
     elev_end_date: Optional[date] = None
+    voksenelev: bool = False
     personaleforening: bool = True
     natarbejde_tillaeg: bool = False
 

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PS Løn – Poul Schou A/S</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=20">
+  <link rel="stylesheet" href="/static/css/style.css?v=23">
   <script src="/static/js/msal-browser.min.js"></script>
   <script>
     const ENTRA_TENANT_ID = "{{ entra_tenant_id }}";
@@ -65,12 +65,16 @@
 <div id="toast-container"></div>
 
 <header class="app-header">
-  <h1 style="display:flex;align-items:center;gap:10px">
+  <h1 style="display:flex;align-items:center;gap:10px;cursor:pointer" title="Til forsiden"
+      onclick="setView(_firstPermittedView())">
     <img src="/static/img/schou_logo.png" alt="Poul Schou" style="height:40px;border-radius:3px">
     PS Løn
   </h1>
   <div class="header-right">
-    <span style="font-size:13px;opacity:.8">Poul Schou A/S · CVR 13246505</span>
+    <button id="btn-alerts-bell" class="alerts-bell" onclick="openAlertsOverview()" title="Advarsler" style="display:none">
+      &#128276;<span id="alerts-bell-count" class="alerts-bell-count" style="display:none">0</span>
+    </button>
+    <span style="font-size:13px;opacity:.8;margin-left:28px">Poul Schou A/S · CVR 13246505</span>
     <span id="header-user" style="font-size:13px;opacity:.9;margin-left:16px;display:none"></span>
     <button id="btn-logout" onclick="doLogout()"
             style="display:none;margin-left:10px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:5px;padding:4px 10px;font-size:12px;cursor:pointer">
@@ -616,6 +620,24 @@
               <tr><td colspan="3" style="padding:24px;text-align:center;color:var(--text-light)">Indlæser...</td></tr>
             </tbody>
           </table>
+
+          <!-- Fremtidige satser (2026-10-06): træder automatisk i kraft på datoen -->
+          <div style="display:flex;align-items:center;margin:24px 0 8px">
+            <h3 style="font-size:15px;font-weight:600">Fremtidige satser</h3>
+            <button class="btn btn-primary" style="margin:0 auto" onclick="openFutureRateModal(null)">+ Tilføj fremtidig sats</button>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:14px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+            <thead>
+              <tr style="background:var(--primary);color:#fff">
+                <th style="padding:10px 14px;text-align:left;font-weight:600">Overenskomsttype</th>
+                <th style="padding:10px 14px;text-align:right;font-weight:600">Timesats (ny)</th>
+                <th style="padding:10px 14px;text-align:left;font-weight:600">Gælder fra</th>
+                <th style="padding:10px 14px;text-align:left;font-weight:600">Begrundelse</th>
+                <th style="padding:10px 14px;text-align:center;font-weight:600">Handlinger</th>
+              </tr>
+            </thead>
+            <tbody id="stamdata-future-rates-tbody"></tbody>
+          </table>
         </div>
 
         <!-- Overtidssatser -->
@@ -912,7 +934,7 @@
   </div>
 </div>
 
-<div id="modal-paragraf56-sygdom-confirm" class="modal-overlay" onclick="if(event.target===this)_resolveParagraf56SygdomChoice('cancel')">
+<div id="modal-paragraf56-sygdom-confirm" class="modal-overlay" onmousedown="this._down = event.target===this" onclick="if(event.target===this && this._down)_resolveParagraf56SygdomChoice('cancel'); this._down = false">
   <div class="modal" style="width:440px">
     <div class="modal-header">
       <h2>&#9888; Aktiv §56-aftale</h2>
@@ -1495,6 +1517,7 @@
     </div>
     <div class="modal-body">
       <input type="hidden" id="emp-id">
+      <div id="emp-elev-claim-note" class="alert-banner mb-16" style="display:none"></div>
 
       <div class="form-row">
         <div class="form-group">
@@ -1676,6 +1699,12 @@
         <div class="form-group">
           <label>Elev slutdato <span style="color:var(--danger)">*</span></label>
           <div id="emp-elev-end"></div>
+        </div>
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:22px"
+                 title="Voksenlærling (fyldt 25 år ved aftalens indgåelse): almindelig overenskomstløn, ingen elevløn-trin">
+            <input type="checkbox" id="emp-voksenelev"> Voksenelev
+          </label>
         </div>
       </div>
 
@@ -2314,5 +2343,8 @@
 </div>
 
 <script src="/static/js/app.js?v={{ app_js_mtime }}"></script>
+<script src="/static/js/elev.js?v={{ app_js_mtime }}"></script>
+<script src="/static/js/agreement_rates.js?v={{ app_js_mtime }}"></script>
+<script src="/static/js/alerts_overview.js?v={{ app_js_mtime }}"></script>
 </body>
 </html>
