@@ -687,6 +687,7 @@ input[type="time"]::-webkit-outer-spin-button {
   font-size: 13px;
 }
 .payroll-row:last-child { border-bottom: none; }
+.payroll-rows .payroll-row:nth-child(even):not(.total) { background: #f6f7f9; }
 .payroll-row.total { font-weight: 700; background: #f0fdf4; }
 .payroll-row .label { color: var(--text-light); }
 
