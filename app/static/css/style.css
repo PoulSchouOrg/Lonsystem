@@ -687,6 +687,7 @@ input[type="time"]::-webkit-outer-spin-button {
   font-size: 13px;
 }
 .payroll-row:last-child { border-bottom: none; }
+.payroll-rows .payroll-row:nth-child(even):not(.total) { background: #f6f7f9; }
 .payroll-row.total { font-weight: 700; background: #f0fdf4; }
 .payroll-row .label { color: var(--text-light); }
 
@@ -709,7 +710,9 @@ input[type="time"]::-webkit-outer-spin-button {
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
-.settlement-table td.num { text-align: right; }
+.settlement-table td.num,
+.settlement-table th.num { text-align: right; }
+.settlement-table tbody tr:nth-child(even):not(.settlement-total-row) td { background: #f6f7f9; }
 .settlement-table tr:last-child td { border-bottom: none; }
 .settlement-table tr.settlement-total-row td { font-weight: 700; background: #f0fdf4; }
 
