@@ -46,7 +46,7 @@ GREY_ROW  = colors.HexColor('#f9f9f9')
 GREY_LINE = colors.HexColor('#e8e8e8')
 TOTAL_BG  = colors.HexColor('#eaf5e4')
 WE_COLOR  = colors.HexColor('#f0f0f0')
-WE_TEXT   = colors.HexColor('#aaaaaa')
+WE_TEXT   = colors.HexColor('#c62828')
 DARK_GREY = colors.HexColor('#555555')
 
 W = 257 * mm  # indholdbredde (A4 landscape - 40 mm margin)
@@ -146,6 +146,7 @@ def _build_pdf(calc: dict, cvr_number: str = CVR_NUMBER) -> bytes:
     s_td_r   = _s('td_r', fontSize=8, alignment=TA_RIGHT)
     s_td_we  = _s('td_we', fontSize=8, textColor=WE_TEXT)
     s_td_we_r = _s('td_we_r', fontSize=8, textColor=WE_TEXT, alignment=TA_RIGHT)
+    s_td_we_abs = _s('td_we_abs', fontSize=8, fontName='Helvetica-Oblique', textColor=WE_TEXT)
     s_td_abs = _s('td_abs', fontSize=8, fontName='Helvetica-Oblique', textColor=PS_GREEN)
 
     story = []
@@ -357,9 +358,11 @@ def _build_pdf(calc: dict, cvr_number: str = CVR_NUMBER) -> bytes:
             note_parts.append('Overnatning')
         note = ', '.join(note_parts)
 
+        # Weekend-rækker beholder baggrundsfarven (WE_COLOR nedenfor) og får
+        # rød tekst.
         if is_we:
             weekend_rows.append(i)
-            cs, csr, ca = s_td_we, s_td_we_r, s_td_we
+            cs, csr, ca = s_td_we, s_td_we_r, (s_td_we_abs if note else s_td_we)
         elif note:
             cs, csr, ca = s_td, s_td_r, s_td_abs
         else:

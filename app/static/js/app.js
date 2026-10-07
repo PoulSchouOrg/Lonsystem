@@ -3027,6 +3027,8 @@ async function openManualActivityModal(empId = null, dateIso = null, opts = {}) 
   document.getElementById("manual-vagtplan-comment-group").style.display = _manualActivityContext.vagtplan ? "" : "none";
   document.getElementById("manual-repeat-group").style.display = _manualActivityContext.vagtplan ? "" : "none";
   document.getElementById("manual-repeat").checked = false;
+  // Valgmulighederne vises kun når Gentagelse er afkrydset – skjul rester fra sidste åbning.
+  document.getElementById("manual-repeat-fields").style.display = "none";
   document.querySelector('input[name="manual-repeat-freq"][value="weekly"]').checked = true;
   document.querySelector('input[name="manual-repeat-end"][value="count"]').checked = true;
   document.getElementById("manual-repeat-count").value = "4";
