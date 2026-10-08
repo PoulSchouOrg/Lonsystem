@@ -4036,7 +4036,10 @@ def build_bruger():
     )
     note_box(doc,
         "I en låst lønperiode kan du hverken registrere, rette eller fjerne fravær eller "
-        "kommentarer i Vagtplanen (2026-09-30). Fravær oprettet fra Vagtplanen kan rettes og "
+        "kommentarer i Vagtplanen (2026-09-30) for medarbejdere der er med i "
+        "Aktivitetsoversigten (disponentgruppe med 'Vis i aktivitetsoversigt'). For alle andre "
+        "medarbejdere kan fravær og kommentarer rettes bagud i tid, også i låste perioder "
+        "(2026-10-08) – normal tid er dog altid låst. Fravær oprettet fra Vagtplanen kan rettes og "
         "fjernes af brugere med redigeringsret til linjen, også uden 'Redigér aktiviteter'/"
         "'Godkend aktiviteter'.",
         "BEMÆRK"

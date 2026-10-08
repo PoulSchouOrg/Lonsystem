@@ -102,3 +102,19 @@ def set_auto_approval_enabled(db, enabled: bool):
         settings.auto_approval_enabled = enabled
     db.commit()
     return settings
+
+
+def put_in_activity_overview(db, employee):
+    """Testhjælper: læg medarbejderen i en disponentgruppe der vises i Aktivitetsoversigten.
+    Låst lønperiode gælder kun fravær/kommentarer for sådanne medarbejdere (2026-10-08) –
+    tests af låse-spærringen skal derfor bruge denne."""
+    from database.models import DispatcherGroup
+    group = db.query(DispatcherGroup).filter(DispatcherGroup.name == "Testgruppe (oversigt)").first()
+    if group is None:
+        group = DispatcherGroup(name="Testgruppe (oversigt)", visible_in_activity_overview=True)
+        db.add(group)
+        db.commit()
+    employee.dispatcher_group_id = group.id
+    db.commit()
+    db.refresh(employee)
+    return group

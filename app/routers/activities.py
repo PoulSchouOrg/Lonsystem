@@ -334,13 +334,31 @@ def _to_response(a: Activity) -> ActivityResponse:
         hidden_from_vagtplan=bool(a.hidden_from_vagtplan),
         absence_group_id=a.absence_group_id,
         series_id=a.series_id,
-        period_closed=bool(a.pay_period and a.pay_period.status == PayPeriodStatus.closed),
+        period_closed=bool(a.pay_period and a.pay_period.status == PayPeriodStatus.closed
+                           and _lock_applies(a.employee, a.activity_type)),
     )
+
+
+def in_activity_overview(emp: Optional[Employee]) -> bool:
+    """Medarbejderen er med i Aktivitetsoversigten (og dermed lønkørslen): disponentgruppe
+    med 'Vis i aktivitetsoversigt'. Samme afgrænsning som payroll_router."""
+    return bool(emp and emp.dispatcher_group and emp.dispatcher_group.visible_in_activity_overview)
+
+
+def _lock_applies(emp: Optional[Employee], activity_type: Optional[str]) -> bool:
+    """Gælder låst lønperiode for denne medarbejder/type? Normal tid er altid låst; fravær
+    (og Vagtplan-kommentarer, activity_type=None) kun for medarbejdere i Aktivitetsoversigten.
+    Øvrige medarbejdere kan rettes bagud i låste perioder (bekræftet af bruger 2026-10-08)."""
+    if activity_type == "normal":
+        return True
+    return in_activity_overview(emp)
 
 
 def _forbid_change_in_closed_period(a: Activity, action: str) -> None:
     """Aktiviteter og fravær i en låst (afsluttet) lønperiode må ikke ændres –
-    hverken fra Aktivitetsoversigten eller Vagtplanen."""
+    hverken fra Aktivitetsoversigten eller Vagtplanen (se _lock_applies for undtagelsen)."""
+    if not _lock_applies(a.employee, a.activity_type):
+        return
     if a.pay_period and a.pay_period.status == PayPeriodStatus.closed:
         raise HTTPException(
             400,
@@ -348,12 +366,14 @@ def _forbid_change_in_closed_period(a: Activity, action: str) -> None:
         )
 
 
-def _forbid_date_in_closed_period(d: date, db: Session) -> PayPeriod:
+def _forbid_date_in_closed_period(d: date, db: Session, emp: Optional[Employee] = None,
+                                  activity_type: Optional[str] = "normal") -> PayPeriod:
     """Der må ikke oprettes (eller flyttes) aktiviteter/fravær ind på en dato i en
     låst lønperiode. Erstatter den tidligere 'sen registrering' (get_billing_period)
-    for manuel oprettelse – bekræftet af bruger 2026-09-30. Returnerer perioden."""
+    for manuel oprettelse – bekræftet af bruger 2026-09-30. Returnerer perioden.
+    Uden emp antages låsen at gælde (se _lock_applies)."""
     period = get_or_create_period_for_date(d, db)
-    if period.status == PayPeriodStatus.closed:
+    if period.status == PayPeriodStatus.closed and (emp is None or _lock_applies(emp, activity_type)):
         raise HTTPException(
             400,
             f"Kan ikke registrere på d. {d.strftime('%d-%m-%Y')} – lønperioden er låst",
@@ -364,7 +384,9 @@ def _forbid_date_in_closed_period(d: date, db: Session) -> PayPeriod:
 def _forbid_removal_in_closed_period(a: Activity) -> None:
     """Aktiviteter og fravær i en låst (afsluttet) lønperiode må hverken slettes eller
     deaktiveres – hverken fra Aktivitetsoversigten eller Vagtplanen. Gjaldt tidligere
-    kun fravær; udvidet til alle typer 2026-09-30."""
+    kun fravær; udvidet til alle typer 2026-09-30. Se _lock_applies for undtagelsen."""
+    if not _lock_applies(a.employee, a.activity_type):
+        return
     if a.pay_period and a.pay_period.status == PayPeriodStatus.closed:
         what = "aktiviteten" if a.activity_type == "normal" else "fravær"
         raise HTTPException(
@@ -630,7 +652,7 @@ def _create_manual_activity_row(db: Session, current_user: AppUser, emp: Employe
         if vehicle:
             vehicle_number = vehicle.vehicle_number
 
-    period = _forbid_date_in_closed_period(body.start_time.date(), db)
+    period = _forbid_date_in_closed_period(body.start_time.date(), db, emp, activity_type)
     is_absence = activity_type != "normal"
     can_auto_approve = user_has_permission(db, current_user, "auto_approve_manual_activities")
     activity = Activity(
@@ -694,12 +716,20 @@ def create_manual_activity(body: ActivityCreate,
 
 @router.get("/locked-dates", response_model=list[date])
 def locked_dates(date_from: date, date_to: date,
+                 employee_id: Optional[int] = None,
+                 activity_type: Optional[str] = None,
                  current_user: AppUser = Depends(get_current_user),
                  db: Session = Depends(get_db)):
     """Datoer i [date_from, date_to] der ligger i en låst lønperiode. Bruges af
-    frontend til at afvise en oprettelse over flere dage FØR noget oprettes."""
+    frontend til at afvise en oprettelse over flere dage FØR noget oprettes.
+    Med employee_id (+ activity_type, tom = kommentar) tages højde for at låsen ikke
+    gælder fravær/kommentarer for medarbejdere uden for Aktivitetsoversigten."""
     if date_to < date_from or (date_to - date_from).days > 366:
         raise HTTPException(400, "Ugyldigt datointerval")
+    if employee_id is not None:
+        emp = db.query(Employee).filter(Employee.id == employee_id).first()
+        if emp and not _lock_applies(emp, activity_type):
+            return []
     closed = (
         db.query(PayPeriod)
         .filter(
@@ -765,7 +795,7 @@ def update_absence_group_dates(group_id: str, body: AbsenceGroupDatesUpdate,
     # Trin 1: validér ALLE fjernelser FØR nogen ændring foretages (alt-eller-intet)
     for d in to_remove_dates:
         act = existing_by_date[d]
-        if act.pay_period.status == PayPeriodStatus.closed:
+        if act.pay_period.status == PayPeriodStatus.closed and _lock_applies(employee, act.activity_type):
             raise HTTPException(
                 400,
                 f"Kan ikke fjerne {d.strftime('%d-%m-%Y')} – lønperioden er allerede afsluttet",
@@ -776,7 +806,7 @@ def update_absence_group_dates(group_id: str, body: AbsenceGroupDatesUpdate,
                 f"Kan ikke fjerne {d.strftime('%d-%m-%Y')} – aktiviteten er splittet, fortryd splittet først",
             )
     for d in to_add_dates:
-        _forbid_date_in_closed_period(d, db)
+        _forbid_date_in_closed_period(d, db, employee, activity_type)
 
     # Trin 2: fjern
     for d in to_remove_dates:
@@ -908,7 +938,7 @@ def update_activity(activity_id: int, body: ActivityUpdate,
                 pass
     # Update pay period if start_time changed – må ikke flyttes ind i en låst periode
     if body.start_time:
-        period = _forbid_date_in_closed_period(body.start_time.date(), db)
+        period = _forbid_date_in_closed_period(body.start_time.date(), db, a.employee, a.activity_type)
         a.pay_period_id = period.id
     log_action(db, current_user, "update_activity", "activity", a.id)
     db.commit()
@@ -930,7 +960,7 @@ def undo_edit(activity_id: int,
         raise HTTPException(400, "Ingen tidsændringer at fortryde")
     # Den oprindelige dato må ikke ligge i en låst periode – ellers ville
     # fortrydelsen flytte aktiviteten ind i en periode der allerede er kørt løn på.
-    period = _forbid_date_in_closed_period(a.original_start_time.date(), db)
+    period = _forbid_date_in_closed_period(a.original_start_time.date(), db, a.employee, a.activity_type)
     a.start_time = a.original_start_time
     a.end_time = a.original_end_time
     a.original_start_time = None

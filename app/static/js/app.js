@@ -3216,7 +3216,9 @@ async function deleteWholeSeries(seriesId) {
 
 async function openManualActivityModal(empId = null, dateIso = null, opts = {}) {
   // Klik på en dato i en låst lønperiode: advar FØR modalen åbnes (tjekkes igen ved gem).
-  if (dateIso && await _rejectIfLockedDates([dateIso])) return;
+  // I Vagtplan oprettes kun fravær/kommentarer – låsen gælder dem kun for medarbejdere
+  // i Aktivitetsoversigten, så backend afgør det ud fra medarbejderen (2026-10-08).
+  if (dateIso && await _rejectIfLockedDates([dateIso], opts.vagtplan ? empId : null, "")) return;
   _manualActivityContext = { vagtplan: !!opts.vagtplan };
   document.getElementById("manual-employee").innerHTML =
     state.employees.filter(e => e.active)
@@ -3509,12 +3511,15 @@ function _resolveParagraf56SygdomChoice(choice) {
 
 // Afviser oprettelse hvis en af datoerne ligger i en låst lønperiode (håndhæves også i
 // backend). Tjekkes FØR noget oprettes, så en periode over flere dage ikke oprettes halvt.
-async function _rejectIfLockedDates(dates) {
+// empId/actType: låsen gælder ikke fravær/kommentarer (actType "" eller fraværstype) for
+// medarbejdere uden for Aktivitetsoversigten – uden empId antages låsen at gælde.
+async function _rejectIfLockedDates(dates, empId = null, actType = null) {
   if (!dates.length) return false;
   const sorted = dates.slice().sort();
   let locked;
   try {
-    locked = await GET(`/api/activities/locked-dates?date_from=${sorted[0]}&date_to=${sorted[sorted.length - 1]}`);
+    const empPart = empId ? `&employee_id=${empId}&activity_type=${encodeURIComponent(actType === "__none__" ? "" : (actType || ""))}` : "";
+    locked = await GET(`/api/activities/locked-dates?date_from=${sorted[0]}&date_to=${sorted[sorted.length - 1]}${empPart}`);
   } catch (e) { toast(e.message, "error"); return true; }
   const hits = sorted.filter(d => locked.includes(d));
   if (!hits.length) return false;
@@ -3566,7 +3571,7 @@ async function confirmManualActivity() {
 
     if (!tilDato) {
       // ── Enkeltdag: uændret adfærd ────────────────────────────────────────
-      if (await _rejectIfLockedDates([fra])) return;
+      if (await _rejectIfLockedDates([fra], empId, actType)) return;
       const timeStr = fra + "T00:00:00";
       try {
         await POST("/api/activities", {
@@ -3586,7 +3591,7 @@ async function confirmManualActivity() {
     // ── Periode: én aktivitet pr. kalenderdag ────────────────────────────
     if (tilDato < fra) { toast("Til dato skal være på eller efter fra dato", "error"); return; }
     const dates = getAllDates(fra, tilDato);
-    if (await _rejectIfLockedDates(dates)) return;
+    if (await _rejectIfLockedDates(dates, empId, actType)) return;
 
     const allOverlaps = [];
     for (const iso of dates) {
@@ -3639,7 +3644,7 @@ async function confirmManualActivity() {
     return;
   }
   if (!isRange && new Date(end) <= new Date(start)) { toast("Sluttid skal være efter starttid", "error"); return; }
-  if (!isRange && await _rejectIfLockedDates([start.slice(0, 10)])) return;
+  if (!isRange && await _rejectIfLockedDates([start.slice(0, 10)], empId, actType)) return;
 
   const terminsdato = document.getElementById("manual-terminsdato").value || null;
   if (actType === "barsel" && !terminsdato) {
@@ -3694,7 +3699,7 @@ async function confirmManualActivity() {
     if (tilDato < fra) { toast("Til dato skal være på eller efter fra dato", "error"); return; }
     const dates = getWeekdayDates(fra, tilDato);
     if (dates.length === 0) { toast("Ingen hverdage i den valgte periode", "error"); return; }
-    if (await _rejectIfLockedDates(dates)) return;
+    if (await _rejectIfLockedDates(dates, empId, actType)) return;
 
     // Overlapscheck for alle dage i perioden
     const allOverlaps = [];
@@ -3786,7 +3791,7 @@ async function confirmManualActivity() {
   const overnight = (actType === "normal" && _manualOvernight) ? _manualOvernight : null;
   const overnightDates = overnight ? _manualOvernightDates(overnight) : [];
   if (overnight) {
-    if (await _rejectIfLockedDates(overnightDates)) return;
+    if (await _rejectIfLockedDates(overnightDates, empId, actType)) return;
     // Medarbejderen er skiftet efter pop-uppen blev bekræftet → advar igen for den nye.
     if (overnight.empId !== empId && !(await _confirmExistingOvernights(empId, overnightDates))) return;
   }

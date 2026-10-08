@@ -1,4 +1,5 @@
 import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
 
 from datetime import datetime, date
@@ -83,6 +84,8 @@ def test_unchanged_days_are_not_touched(db, employee):
 
 def test_removing_day_in_closed_period_blocks_entire_call(db, employee):
     from routers.activities import update_absence_group_dates
+    from conftest import put_in_activity_overview
+    put_in_activity_overview(db, employee)  # låsen gælder kun medarbejdere i oversigten
     dates = [date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 7)]
     acts = _make_group(db, employee, dates, status=ActivityStatus.pending)
     # Luk lønperioden for den dag der skulle fjernes

@@ -1,6 +1,7 @@
 """Huller i spærringen af låste lønperioder (lukket 2026-09-30), split efter
 'Ret til andet arbejde' og Lønkørsel-'I alt' = Lønafregningens total."""
 import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
 
 from datetime import date, datetime
@@ -15,6 +16,14 @@ from database.models import (
 from database.schemas import ActivityDeactivate, ActivitySplit
 from calculators.pay_period import get_or_create_period_for_date
 
+
+
+@pytest.fixture(autouse=True)
+def _employee_in_activity_overview(db, employee):
+    """Låse-tests: medarbejderen skal være med i Aktivitetsoversigten, ellers gælder
+    låst lønperiode ikke for fravær/kommentarer (2026-10-08)."""
+    from conftest import put_in_activity_overview
+    put_in_activity_overview(db, employee)
 
 def _user():
     return AppUser(name="Test", initials="LB1", role="admin", password_hash="x")

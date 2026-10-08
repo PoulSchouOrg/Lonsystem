@@ -771,3 +771,9 @@ Disponentgrupper sorteres "naturligt" (0, 00, 000, 1, 2 … 10 – ikke 1, 10, 2
 - **Endpoints:** `POST /api/vagtplan-series/preview`, `POST /api/vagtplan-series`, `GET /{id}` (view_calendar|vagtplan_view), `PATCH /{id}` (slut ændres KUN i enden; alt-eller-intet ved låst dag), `DELETE /{id}` (bevarer låste/splittede), `DELETE /{id}/occurrences/{dato}`. Skriv kræver `_has_vagtplan_edit_access`.
 - **Frontend:** Gentagelse-felter i opret-modalen (kun vagtplan-kontekst, `_isRepeatOn()`), serie-sektion i `openActivityDetail()` og `openVagtplanCommentModal()` via `_renderSeriesSection()`.
 - Tests: `tests/test_recurrence.py`, `tests/test_vagtplan_series.py`.
+
+## Låst lønperiode kun for medarbejdere i Aktivitetsoversigten (2026-10-08, activities.py + vagtplan_comments.py + vagtplan_series.py + app.js)
+- `in_activity_overview(emp)` (disponentgruppe med `visible_in_activity_overview` – samme afgrænsning som lønkørslen) og `_lock_applies(emp, activity_type)` i `activities.py`: normal tid er ALTID låst; fravær og Vagtplan-kommentarer kun for medarbejdere i oversigten. Øvrige kan rettes bagud i låste perioder.
+- Bruges af `_forbid_change_in_closed_period`, `_forbid_removal_in_closed_period`, `_forbid_date_in_closed_period(d, db, emp, activity_type)` (uden emp = låst), absence-group PATCH, `vagtplan_comments.py` og `vagtplan_series._is_locked(db, d, emp)`. `ActivityResponse.period_closed` er den EFFEKTIVE lås, så frontendens `_editLocked`/`_removalLocked` følger automatisk med.
+- `GET /api/activities/locked-dates` tager valgfrit `employee_id` + `activity_type` (tom = kommentar); `_rejectIfLockedDates(dates, empId, actType)` sender dem.
+- Tests af selve låsen skal lægge medarbejderen i oversigten: `put_in_activity_overview(db, employee)` i `tests/conftest.py`. Undtagelsen testes i `tests/test_locked_period_outside_overview.py`.

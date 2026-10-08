@@ -1,4 +1,5 @@
 import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'app'))
 
 from datetime import datetime, timedelta
@@ -10,6 +11,14 @@ from database.models import Activity, ActivitySource, ActivityStatus, AppUser, P
 from database.schemas import ActivityDeactivate
 from calculators.pay_period import get_or_create_period_for_date
 
+
+
+@pytest.fixture(autouse=True)
+def _employee_in_activity_overview(db, employee):
+    """Låse-tests: medarbejderen skal være med i Aktivitetsoversigten, ellers gælder
+    låst lønperiode ikke for fravær/kommentarer (2026-10-08)."""
+    from conftest import put_in_activity_overview
+    put_in_activity_overview(db, employee)
 
 def _user():
     return AppUser(name="Test", initials="LB1", role="lonbogholder", password_hash="x")

@@ -20,7 +20,7 @@ from database.schemas import (
 from database.session import get_db
 from routers.activities import (
     _BACKEND_ONLY_TYPES, _COUNT_BASED_RANGE_TYPES, _HIDDEN_FROM_TYPE_PICKER,
-    _create_manual_activity_row, _has_vagtplan_edit_access, _range_day_defaults,
+    _create_manual_activity_row, _has_vagtplan_edit_access, _range_day_defaults, in_activity_overview,
 )
 
 router = APIRouter(prefix="/api/vagtplan-series", tags=["vagtplan-series"])
@@ -36,11 +36,14 @@ def _holidays(db: Session) -> set[date]:
     return {h.date for h in db.query(Holiday).all()}
 
 
-def _is_locked(db: Session, d: date) -> bool:
+def _is_locked(db: Session, d: date, emp: Employee) -> bool:
     # Opretter også perioden hvis den mangler (get_or_create committer) – derfor
     # kaldes dette for ALLE datoer FØR noget oprettes, så senere opslag ikke committer
     # en halvt oprettet serie.
-    return get_or_create_period_for_date(d, db).status == PayPeriodStatus.closed
+    # Serier er altid fravær/kommentarer → låsen gælder kun medarbejdere i
+    # Aktivitetsoversigten (2026-10-08).
+    closed = get_or_create_period_for_date(d, db).status == PayPeriodStatus.closed
+    return closed and in_activity_overview(emp)
 
 
 def _employee_with_access(db: Session, user: AppUser, employee_id: int) -> Employee:
@@ -146,7 +149,7 @@ def _plan(db: Session, body: VagtplanSeriesCreate, emp: Employee) -> VagtplanSer
                              skip_holidays=bool(body.activity_type), interval=_interval(body))
     if not dates:
         raise HTTPException(400, "Ingen forekomster i den valgte periode")
-    locked = [d for d in dates if _is_locked(db, d)]
+    locked = [d for d in dates if _is_locked(db, d, emp)]
     comment_conflicts = []
     if body.comment_text:
         existing = {c.date for c in db.query(VagtplanComment).filter(
@@ -233,7 +236,7 @@ def _delete_occurrence_rows(db: Session, series: VagtplanSeries, d: date) -> Non
 
 
 def _assert_removable(db: Session, series: VagtplanSeries, d: date) -> None:
-    if _is_locked(db, d):
+    if _is_locked(db, d, series.employee):
         raise HTTPException(400, f"Kan ikke fjerne {_fmt(d)} – lønperioden er låst")
     start = datetime.combine(d, time(0, 0))
     for a in db.query(Activity).filter(Activity.series_id == series.id,
@@ -276,7 +279,7 @@ def update_series_end(series_id: int, body: VagtplanSeriesEndUpdate,
     # Validér ALT før noget ændres
     for d in to_remove:
         _assert_removable(db, series, d)
-    locked_add = [d for d in to_add if _is_locked(db, d)]
+    locked_add = [d for d in to_add if _is_locked(db, d, emp)]
     if locked_add:
         raise HTTPException(400, "Kan ikke forlænge – lønperioden er låst for: "
                             + ", ".join(_fmt(d) for d in locked_add))
@@ -305,7 +308,7 @@ def delete_series(series_id: int,
     splittede aktiviteter). Serierækken slettes når intet er tilbage."""
     series, emp = _load_series_with_access(db, current_user, series_id)
     dates = _occurrence_dates_of(db, series)
-    locked = {d for d in dates if _is_locked(db, d)}
+    locked = {d for d in dates if _is_locked(db, d, emp)}
     deleted, kept_split = 0, 0
     for d in dates:
         if d in locked:

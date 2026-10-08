@@ -13,6 +13,14 @@ from database.models import (
 from calculators.pay_period import get_or_create_period_for_date
 
 
+
+@pytest.fixture(autouse=True)
+def _employee_in_activity_overview(db, employee):
+    """Låse-tests: medarbejderen skal være med i Aktivitetsoversigten, ellers gælder
+    låst lønperiode ikke for fravær/kommentarer (2026-10-08)."""
+    from conftest import put_in_activity_overview
+    put_in_activity_overview(db, employee)
+
 def _admin(db, initials="TST"):
     if not db.query(Role).filter(Role.name == "admin").first():
         db.add(Role(name="admin", display_name="Administrator", is_system=True, permissions=[]))

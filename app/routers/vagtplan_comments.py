@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from auth import get_current_user, log_action, require_permission, user_has_permission
 from calculators.pay_period import get_or_create_period_for_date
+from routers.activities import in_activity_overview
 from database.models import AppUser, Employee, PayPeriodStatus, VagtplanComment
 from database.schemas import VagtplanCommentCreate, VagtplanCommentResponse
 from database.session import get_db
@@ -49,7 +50,8 @@ def create_comment(body: VagtplanCommentCreate,
         raise HTTPException(403, "Ingen redigeringsret til Vagtplan for denne medarbejder")
     # Ingen kommentarer (oprettelse eller rettelse) på datoer i en låst lønperiode –
     # bekræftet af bruger 2026-09-30.
-    if get_or_create_period_for_date(body.date, db).status == PayPeriodStatus.closed:
+    # Gælder kun medarbejdere i Aktivitetsoversigten (2026-10-08).
+    if in_activity_overview(emp) and get_or_create_period_for_date(body.date, db).status == PayPeriodStatus.closed:
         raise HTTPException(
             400, f"Kan ikke gemme kommentar d. {body.date.strftime('%d-%m-%Y')} – lønperioden er låst"
         )
@@ -88,7 +90,7 @@ def delete_comment(comment_id: int,
     emp = db.query(Employee).filter(Employee.id == comment.employee_id).first()
     if not emp or not _has_edit_access(db, current_user, emp):
         raise HTTPException(403, "Ingen redigeringsret til Vagtplan for denne medarbejder")
-    if get_or_create_period_for_date(comment.date, db).status == PayPeriodStatus.closed:
+    if in_activity_overview(emp) and get_or_create_period_for_date(comment.date, db).status == PayPeriodStatus.closed:
         raise HTTPException(
             400, f"Kan ikke slette kommentar d. {comment.date.strftime('%d-%m-%Y')} – lønperioden er låst"
         )
