@@ -118,6 +118,8 @@ Se `DATA_MODEL.md` for tabelstruktur og `CODEREF.md` for implementeringsdetaljer
 - **Personlige indstillinger** (⚙ Indstillinger): Kommende ændringer i overenskomst – første besked (standard 30 dage før lønperioden) og
   påmind igen (7 dage, eller aldrig). Øvrige – første besked (højst 30 dage), anden besked (7 dage) og på dagen;
   "OK" skjuler kun til næste påmindelse. Man ser kun indstillinger for de advarsler rollen giver.
+- **Vis tidligere** (skjult som standard): behandlede advarsler de sidste 90 dage – lønstigninger (godkendt, beholdt,
+  annulleret, trådt i kraft; fælles for alle med rettigheden) og ens egne "OK" på øvrige advarsler. Kun læsning.
 
 ## Anciennitet
 
