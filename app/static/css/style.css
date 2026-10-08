@@ -294,6 +294,8 @@ tbody tr.status-deactivated { border-left: 3px solid var(--deactivated); opacity
 .grid-table thead th .day-name { font-weight: 700; display: block; }
 .grid-table thead th .day-date { font-weight: 400; opacity: .85; font-size: 11px; }
 .grid-table thead th.today { background: var(--accent); }
+/* Vagtplan: datorækken står fast under ugenummer-rækken (højden sættes i renderVagtplanTable) */
+#vagtplan-grid-head tr:nth-child(2) th { top: var(--vagtplan-week-row-h, 33px); }
 
 .grid-table tbody tr { cursor: default; }
 .grid-table tbody tr:nth-child(even) td { background: #f6f7f9; }

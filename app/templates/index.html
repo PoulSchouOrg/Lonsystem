@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PS Løn – Poul Schou A/S</title>
-  <link rel="stylesheet" href="/static/css/style.css?v=30">
+  <link rel="stylesheet" href="/static/css/style.css?v=31">
   <script src="/static/js/msal-browser.min.js"></script>
   <script>
     const ENTRA_TENANT_ID = "{{ entra_tenant_id }}";
@@ -292,11 +292,9 @@
       <div class="period-bar">
         <button id="btn-prev-vagtplan" class="period-nav-btn" title="Forrige uge">&#8249;</button>
         <span id="vagtplan-period-label" class="period-label">Indlæser...</span>
-        <span style="position:relative;display:inline-flex;margin-left:8px">
-          <button id="btn-vagtplan-calendar" class="btn btn-secondary" title="Vælg dato – vises som første uge">&#128197;</button>
-          <input type="date" id="vagtplan-date-picker" tabindex="-1" aria-hidden="true"
-                 style="position:absolute;left:0;bottom:0;width:100%;height:100%;opacity:0;pointer-events:none">
-        </span>
+        <!-- Kalender med ugenumre (buildDatePicker med weeks) – knappen flyttes ind i containeren ved opstart -->
+        <button id="btn-vagtplan-calendar" class="btn btn-secondary" title="Vælg dato eller uge – vises som første uge">&#128197;</button>
+        <div id="vagtplan-date-picker"></div>
         <button id="btn-vagtplan-today" class="btn btn-secondary" style="margin:0 8px">I dag</button>
         <button id="btn-next-vagtplan" class="period-nav-btn" title="Næste uge">&#8250;</button>
       </div>
@@ -304,6 +302,8 @@
         <select id="vagtplan-filter-employee" style="width:200px">
           <option value="">Alle medarbejdere</option>
         </select>
+        <input type="text" id="vagtplan-search" placeholder="Søg navn eller lønnr…" autocomplete="off"
+               style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:200px">
         <div id="vagtplan-group-filter" style="position:relative"></div>
         <div class="spacer"></div>
         <button class="btn btn-secondary" onclick="openVagtplanTomorrowModal()">&#128197; Fravær i morgen</button>
