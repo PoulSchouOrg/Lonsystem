@@ -629,10 +629,20 @@ function jumpToDagsplanToday() {
   loadDagsplan();
 }
 
+// Sortering efter tallet i beskrivelsen (2026-10-08, ønsket af dagsplan-brugerne):
+// "T - 3 aks hydraulik" → 3, "F - 19 TM" → 19. Er der flere tal, bruges tallet foran "TM".
+// Vogne uden tal kommer sidst; ved samme tal bevares vognnummer-rækkefølgen fra serveren.
+function _dagsplanDescNumber(desc) {
+  const text = desc || "";
+  const m = text.match(/(\d+(?:,\d+)?)\s*TM\b/i) || text.match(/\d+(?:,\d+)?/);
+  return m ? parseFloat((m[1] || m[0]).replace(",", ".")) : Infinity;
+}
+
 function renderDagsplanMain() {
   const body = document.getElementById("dagsplan-main-body");
   const canEdit = _canEditDagsplan();
-  const rows = state.dagsplan.data?.vehicles || [];
+  const rows = [...(state.dagsplan.data?.vehicles || [])]
+    .sort((a, b) => _dagsplanDescNumber(a.description) - _dagsplanDescNumber(b.description) || 0);
 
   const vehicleRowClass = v => {
     if (v.absent) return "dagsplan-vehicle-absent"; // vognen selv er materielt fraværende - højeste prioritet
