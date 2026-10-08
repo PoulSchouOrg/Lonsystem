@@ -651,6 +651,15 @@ function onDagsplanTypeFilterChange() {
   renderDagsplanMain();
 }
 
+// Sortering efter tallet i beskrivelsen (2026-10-08, ønsket af dagsplan-brugerne):
+// "T - 3 aks hydraulik" → 3, "F - 19 TM" → 19. Er der flere tal, bruges tallet foran "TM".
+// Største tal øverst (rettet 2026-10-08); vogne uden tal kommer sidst; ved samme tal bevares vognnummer-rækkefølgen fra serveren.
+function _dagsplanDescNumber(desc) {
+  const text = desc || "";
+  const m = text.match(/(\d+(?:,\d+)?)\s*TM\b/i) || text.match(/\d+(?:,\d+)?/);
+  return m ? parseFloat((m[1] || m[0]).replace(",", ".")) : -Infinity;
+}
+
 function renderDagsplanMain() {
   const body = document.getElementById("dagsplan-main-body");
   const canEdit = _canEditDagsplan();
@@ -664,7 +673,10 @@ function renderDagsplanMain() {
     (!groupId && !types.size) ||
     (groupId && groupOfVehicle === groupId) ||
     (types.size > 0 && typeMatches(description));
-  const rows = (state.dagsplan.data?.vehicles || []).filter(v => vehicleVisible(v.dispatcher_group_id, v.description));
+  // Først filtrering, derefter sortering efter tallet i beskrivelsen (største øverst).
+  const rows = (state.dagsplan.data?.vehicles || [])
+    .filter(v => vehicleVisible(v.dispatcher_group_id, v.description))
+    .sort((a, b) => _dagsplanDescNumber(b.description) - _dagsplanDescNumber(a.description) || 0);
 
   const vehicleRowClass = v => {
     if (v.absent) return "dagsplan-vehicle-absent"; // vognen selv er materielt fraværende - højeste prioritet
