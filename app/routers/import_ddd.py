@@ -394,7 +394,9 @@ def _import_activity(
                 # uanset aktivitetens status.
                 if act.vehicle_registration and act.vehicle_registration != existing.vehicle_registration:
                     existing.vehicle_registration = act.vehicle_registration
-                    v = db.query(Vehicle).filter(Vehicle.registration_number == act.vehicle_registration).first()
+                    v = db.query(Vehicle).filter(
+                        Vehicle.registration_number == act.vehicle_registration, Vehicle.deleted_at.is_(None)
+                    ).first()
                     existing.vehicle_number = v.vehicle_number if v else None
                     changed = True
                 # Listen over alle biler vagten er kørt i følger samme princip:
@@ -581,7 +583,9 @@ def _import_activity(
 
     vehicle_number = None
     if act.vehicle_registration:
-        v = db.query(Vehicle).filter(Vehicle.registration_number == act.vehicle_registration).first()
+        v = db.query(Vehicle).filter(
+            Vehicle.registration_number == act.vehicle_registration, Vehicle.deleted_at.is_(None)
+        ).first()
         if v:
             vehicle_number = v.vehicle_number
 

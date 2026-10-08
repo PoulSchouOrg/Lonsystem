@@ -24,6 +24,7 @@ class DispatcherGroupResponse(BaseModel):
     name: str
     description: Optional[str] = None
     visible_in_activity_overview: bool = True
+    visible_in_dagsplan: bool = False
     vehicle_id: Optional[int] = None
     vehicle_number: Optional[str] = None
 
@@ -395,6 +396,7 @@ class DailyPlanAssignmentUpsert(BaseModel):
 class DailyPlanExtraAssignmentUpsert(BaseModel):
     date: date
     slot: Annotated[int, Field(ge=1, le=10)]
+    vehicle_id: Optional[int] = None  # kun ændret hvis feltet sendes med
     employee_id: Optional[int] = None
     task: Optional[str] = None
     informed: bool = False
@@ -412,10 +414,17 @@ class DagsplanVehicleRow(BaseModel):
     informed: bool = False
     absent: bool = False
     mismatch_vehicle_number: Optional[str] = None
+    deleted: bool = False  # slettet vogn med historisk tildeling - vises som død tekst
 
 
 class DagsplanExtraRow(BaseModel):
     slot: int
+    vehicle_id: Optional[int] = None
+    vehicle_number: Optional[str] = None
+    description: Optional[str] = None
+    dispatcher_group_id: Optional[int] = None  # den valgte vogns afdeling (til afdelingsfilteret)
+    vehicle_deleted: bool = False
+    mismatch_vehicle_number: Optional[str] = None
     employee_id: Optional[int] = None
     employee_name: Optional[str] = None
     task: Optional[str] = None
@@ -447,6 +456,7 @@ class VehicleAbsenceResponse(BaseModel):
     id: int
     vehicle_id: int
     vehicle_number: str
+    vehicle_deleted: bool = False
     date_from: date
     date_to: Optional[date] = None
     comment: str

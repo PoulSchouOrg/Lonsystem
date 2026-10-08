@@ -718,6 +718,7 @@ class DispatcherGroupBody(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     visible_in_activity_overview: Optional[bool] = None
+    visible_in_dagsplan: Optional[bool] = None
     vehicle_id: Optional[int] = None
 
 
@@ -728,6 +729,7 @@ def _dispatcher_group_row(r) -> dict:
         "description": r.description,
         "employee_count": len(r.employees),
         "visible_in_activity_overview": r.visible_in_activity_overview,
+        "visible_in_dagsplan": r.visible_in_dagsplan,
         "vehicle_id": r.vehicle_id,
         "vehicle_number": r.vehicle.vehicle_number if r.vehicle else None,
     }
@@ -753,7 +755,9 @@ def create_dispatcher_group(
     name = body.name.strip()
     if db.query(DispatcherGroup).filter(DispatcherGroup.name == name).first():
         raise HTTPException(400, "En disponentgruppe med dette navn eksisterer allerede")
-    if body.vehicle_id is not None and not db.query(Vehicle).filter(Vehicle.id == body.vehicle_id).first():
+    if body.vehicle_id is not None and not db.query(Vehicle).filter(
+        Vehicle.id == body.vehicle_id, Vehicle.deleted_at.is_(None)
+    ).first():
         raise HTTPException(400, "Ukendt køretøj")
     row = DispatcherGroup(
         name=name,
@@ -763,6 +767,7 @@ def create_dispatcher_group(
             if body.visible_in_activity_overview is not None
             else True
         ),
+        visible_in_dagsplan=bool(body.visible_in_dagsplan),
         vehicle_id=body.vehicle_id,
     )
     db.add(row)
@@ -799,8 +804,12 @@ def update_dispatcher_group(
         row.description = body.description.strip() or None
     if body.visible_in_activity_overview is not None:
         row.visible_in_activity_overview = body.visible_in_activity_overview
+    if body.visible_in_dagsplan is not None:
+        row.visible_in_dagsplan = body.visible_in_dagsplan
     if "vehicle_id" in body.model_fields_set:
-        if body.vehicle_id is not None and not db.query(Vehicle).filter(Vehicle.id == body.vehicle_id).first():
+        if body.vehicle_id is not None and not db.query(Vehicle).filter(
+            Vehicle.id == body.vehicle_id, Vehicle.deleted_at.is_(None)
+        ).first():
             raise HTTPException(400, "Ukendt køretøj")
         row.vehicle_id = body.vehicle_id
     db.commit()

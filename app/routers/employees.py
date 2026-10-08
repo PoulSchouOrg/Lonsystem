@@ -231,7 +231,7 @@ def _resolve_dispatcher_group(db: Session, group_id: Optional[int]) -> Optional[
 def _resolve_vehicle_id(db: Session, vehicle_id: Optional[int]) -> Optional[int]:
     if vehicle_id is None:
         return None
-    if not db.query(Vehicle).filter(Vehicle.id == vehicle_id).first():
+    if not db.query(Vehicle).filter(Vehicle.id == vehicle_id, Vehicle.deleted_at.is_(None)).first():
         raise HTTPException(400, f"Ukendt vogn-id: {vehicle_id}")
     return vehicle_id
 

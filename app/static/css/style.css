@@ -345,6 +345,15 @@ tbody tr.status-deactivated { border-left: 3px solid var(--deactivated); opacity
 .grid-table tbody tr.dagsplan-vehicle-comment-only td { background: #ffe49a; font-weight: 600; }
 .grid-table tbody tr.dagsplan-emp-none td,
 .grid-table tbody tr.dagsplan-vehicle-none td         { background: #dde1e6; font-weight: 600; }
+.ds-type-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: 13px; }
+.ds-type-filter label { display: flex; align-items: center; gap: 4px; cursor: pointer; margin: 0; white-space: nowrap; }
+.ds-task-input {
+  width: 100%; padding: 4px 6px; resize: none; overflow: hidden;
+  font: inherit; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere;
+  display: block; box-sizing: border-box;
+}
+.dagsplan-vehicle-deleted      { border-left: 4px solid #c3c9d0; }
+.grid-table tbody tr.dagsplan-vehicle-deleted td      { background: #f3f4f6; color: #6b7280; font-style: italic; }
 .springer-flag-label {
   display: flex;
   align-items: center;

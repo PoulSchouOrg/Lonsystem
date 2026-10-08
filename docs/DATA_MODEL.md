@@ -174,7 +174,9 @@ Mærkedagsadvarsler (jubilæum, elev slutter, rund fødselsdag – 2026-10-01) a
 | id | INTEGER PK | Intern ID |
 | name | TEXT NOT NULL | Gruppenavn |
 | description | TEXT | Beskrivelse |
-| vehicle_id | INTEGER FK NULL | Gruppens "standardvogn" – bruges IKKE længere (fravær-default kommer fra `employees.absence_vehicle_id` siden 2026-09-30); kan stadig redigeres i Stamdata |
+| visible_in_activity_overview | BOOLEAN NOT NULL DEFAULT TRUE | "Vis i aktivitetsoversigt" |
+| visible_in_dagsplan | BOOLEAN NOT NULL DEFAULT FALSE | "Medtag i Dagsplan" (2026-10-08) – gruppens aktive ikke-funktionærer vises i Dagsplanens chaufførlister. Eksisterende grupper migreret til FALSE |
+| vehicle_id | INTEGER FK NULL | Gruppens "standardvogn" – bruges IKKE længere (fravær-default kommer fra `employees.absence_vehicle_id` siden 2026-09-30); kan stadig redigeres i Stamdata. Nulstilles hvis vognen slettes |
 
 En medarbejder tilhører højst ÉN gruppe (`employees.dispatcher_group_id`, se ovenfor) – ikke en
 mange-til-mange-relation. Feltet har historisk skiftet form to gange: oprindeligt en enkelt
@@ -192,6 +194,18 @@ tekststreng, dernæst (fra 27/7-2026) en mange-til-mange-relation via en nu fjer
 | vehicle_number | TEXT | Internt vognnummer |
 | description | TEXT NULL | Vises som kolonne 2 i Dagsplan |
 | dispatcher_group_id | INTEGER FK NULL | Mange vogne → én disponentgruppe (adskilt fra `dispatcher_groups.vehicle_id` ovenfor, som er gruppens egen "standardvogn") |
+| vognpark | BOOLEAN NOT NULL DEFAULT FALSE | Vises i Dagsplans vognkolonne og under fanen "Vognpark" |
+| deleted_at | DATETIME NULL | Blød sletning (2026-10-08) – se nedenfor |
+
+**Sletning af vogne er blød (2026-10-08):** rækken bevares med `deleted_at`, så vognnummeret
+står som død tekst på gamle vagter, i Lønafregning og i historiske Dagsplan-rækker/materielt
+fravær. Slettede vogne skjules i `GET /api/vehicles` og kan ikke vælges nogen steder.
+Ved sletning nulstilles `employees.fast_bil_vehicle_id` (og `fast_bil`),
+`employees.absence_vehicle_id` og `dispatcher_groups.vehicle_id`; Dagsplan-tildelinger efter
+i dag slettes, og materielt fravær der starter efter i dag slettes/afkortes til i dag. Er
+vognen skrevet på vagter i en ulåst lønperiode, svarer `DELETE` 409 med en advarsel
+(`?force=true` gennemfører). Oprettes en ny vogn med en slettet vogns nummerplade, omdøbes
+den slettedes plade til `"<plade> (slettet <id>)"` (pladen er UNIQUE).
 
 ---
 
@@ -213,7 +227,9 @@ tekststreng, dernæst (fra 27/7-2026) en mange-til-mange-relation via en nu fjer
 
 Samme felter som `daily_plan_assignments`, men uden `vehicle_id` – i stedet et fast `slot`
 (1-10) for de 10 EKSTRA-pladser (hjælp på pladsen/lærlinge). Indgår aldrig i vognnummer-
-autoudfyldning eller lønberegning.
+autoudfyldning eller lønberegning. Siden 2026-10-08 har linjen et valgfrit `vehicle_id`
+(INTEGER FK NULL) – en vogn uden Vognpark-flueben for netop den dag, der kun bruges til
+visning (vognnummer + beskrivelse) og ⚠️-advarslen.
 
 ### `vehicle_absences` (Materielt fravær)
 
@@ -228,6 +244,7 @@ autoudfyldning eller lønberegning.
 | created_at | DATETIME | |
 
 En vogn regnes som materielt fraværende på dato `d`, hvis `date_from <= d <= (date_to ?? date_from)`.
+Fravær på en slettet vogn vises som historik og kan ikke slettes.
 Permissions: `dagsplan_view` (læse) / `dagsplan_edit` (redigere) for alle fire Dagsplan-tabeller.
 
 ---

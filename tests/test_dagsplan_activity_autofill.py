@@ -11,8 +11,9 @@ def _user():
     return AppUser(name="Test", initials="TST", role="disponent", password_hash="x")
 
 
-def _vehicle(db, number="52", reg="BN47449"):
-    v = Vehicle(registration_number=reg, vehicle_number=number)
+def _vehicle(db, number="52", reg="BN47449", vognpark=True):
+    # Autoudfyldning bruger kun vogne der vises i Dagsplanen (Vognpark-flueben, 2026-10-08)
+    v = Vehicle(registration_number=reg, vehicle_number=number, vognpark=vognpark)
     db.add(v)
     db.commit()
     db.refresh(v)

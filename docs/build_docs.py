@@ -507,12 +507,23 @@ def build_teknisk():
             ["vehicle_number",      "String",            "Internt vognnummer"],
             ["description",         "Text (opt.)",       "'Beskrivelse' – vises som kolonne 2 i Dagsplan (afsnit 14.3)"],
             ["vognpark",            "Boolean, default false", "Vises under fanen 'Vognpark' og i Dagsplans vognliste (kapitel 17)"],
+            ["deleted_at",          "DateTime (opt.)",   "Blød sletning (2026-10-08). Rækken bevares, så vognnummeret står som død tekst på gamle vagter, i Lønafregning og i historiske Dagsplan-rækker. Se afsnit 2.7 og kapitel 17"],
             ["dispatcher_group_id", "Integer FK (opt.)", "Mange vogne → én disponentgruppe. Adskilt fra DispatcherGroup.vehicle_id (gruppens 'standardvogn'). Standardvognen blev tidligere brugt til autoudfyldning af vognnummer ved fravær, men siden 2026-09-30 bruges i stedet Employee.absence_vehicle_id (afsnit 2.1) – DispatcherGroup.vehicle_id findes stadig og kan redigeres i Stamdata → Disponentgrupper, men har ingen effekt"],
         ]
     )
     body(doc, (
         "description og dispatcher_group_id sættes/redigeres i den eksisterende Vognpark-sides "
         "opret/rediger-vogn-modal (kræver fortsat 'manage_vehicles')."
+    ))
+    body(doc, (
+        "Sletning er blød (2026-10-08): delete_vehicle sætter deleted_at i stedet for at fjerne "
+        "rækken. Slettede vogne skjules i GET /api/vehicles og afvises som valg overalt (fast bil, "
+        "fraværsvogn, standardvogn, Dagsplan, materielt fravær, .ddd-import), men opslag af "
+        "vognnummer til visning (Lønafregning, flere biler på en vagt) finder dem stadig. Ved "
+        "sletning nulstilles Employee.fast_bil_vehicle_id/fast_bil, Employee.absence_vehicle_id og "
+        "DispatcherGroup.vehicle_id; Dagsplan-tildelinger efter i dag slettes, og materielt fravær "
+        "efter i dag slettes/afkortes. Genoprettes en slettet vogns nummerplade, omdøbes den "
+        "slettedes plade til '<plade> (slettet <id>)', da registration_number er unik."
     ))
 
     heading(doc, "Dagsplan – tabeller", 2, "2.8")
@@ -524,7 +535,7 @@ def build_teknisk():
         ["Tabel", "Felt", "Beskrivelse"],
         [
             ["daily_plan_assignments",       "date / vehicle_id / employee_id (opt.) / task (opt.) / informed", "Én tildeling pr. vogn pr. dag. UniqueConstraint(date, vehicle_id) – upsert. employee_id kan være tomt (vogn uden chauffør den dag)."],
-            ["daily_plan_extra_assignments", "date / slot (1-10) / employee_id (opt.) / task (opt.) / informed", "De 10 faste 'EKSTRA'-rækker (hjælp på pladsen/lærlinge). Persisteres i egen tabel siden 2026-09-09 (oprindeligt kun frontend-state, nulstillet ved datoskift – ændret efter brugerønske om at kunne se dem igen senere). Indgår ALDRIG i vognnummer-autoudfyldning."],
+            ["daily_plan_extra_assignments", "date / slot (1-10) / vehicle_id (opt.) / employee_id (opt.) / task (opt.) / informed", "De 10 faste 'EKSTRA'-rækker (hjælp på pladsen/lærlinge). Persisteres i egen tabel siden 2026-09-09 (oprindeligt kun frontend-state, nulstillet ved datoskift – ændret efter brugerønske om at kunne se dem igen senere). vehicle_id (2026-10-08): valgfri vogn UDEN Vognpark-flueben for netop den dag – kun visning og ⚠️-advarsel; vognens faste chauffør sættes ved valg, og chaufføren fjernes når vognen fjernes. Indgår ALDRIG i vognnummer-autoudfyldning."],
             ["vehicle_absences",             "vehicle_id / date_from / date_to (opt.) / comment / created_by", "Materielt fravær for en vogn. date_to=NULL betyder étdags-fravær (samme dag som date_from). En vogn regnes fraværende på dato d hvis date_from ≤ d ≤ (date_to ?? date_from)."],
         ],
         [Cm(3.8), Cm(4.2), Cm(8)]
@@ -539,7 +550,7 @@ def build_teknisk():
 
     body(doc, (
         "Øvrige tabeller, som er beskrevet i de kapitler hvor de bruges: dispatcher_groups "
-        "(name, description, visible_in_activity_overview, vehicle_id), employee_supplements "
+        "(name, description, visible_in_activity_overview, visible_in_dagsplan, vehicle_id), employee_supplements "
         "(6.4), paragraf_56_alert_dismissals (6.5), employee_springer_flags (7.6), "
         "vagtplan_comments (15.1), employee_baselines og system_settings (18), declined_imports "
         "(4.2), roles, app_users og audit_logs (brugerstyring og hændelseslog)."
@@ -972,7 +983,7 @@ def build_teknisk():
             ["CVR nummer",        "master_cvr_numbers",     "Opret, rediger, sæt standard, slet"],
             ["Stillinger",        "master_positions",       "Opret, omdøb, slet (2026-10-01). Navne er unikke uden hensyn til store/små bogstaver og vises alfabetisk. Sletning afvises, hvis stillingen bruges af en medarbejder (fejlbeskeden viser antallet). Ændringer audit-logges"],
             ["Helligdage",        "holidays",              "Auto-generer for år, opret manuelt, slet. Kræver 'manage_holidays'-rettighed."],
-            ["Disponentgrupper",  "dispatcher_groups",      "Opret, omdøb/rediger beskrivelse, slet (fjerner automatisk tilknytning hos medlemmer)"],
+            ["Disponentgrupper",  "dispatcher_groups",      "Opret, omdøb/rediger beskrivelse, 'Vis i aktivitetsoversigt', 'Medtag i Dagsplan' (visible_in_dagsplan, 2026-10-08 – eksisterende grupper = Nej), slet (fjerner automatisk tilknytning hos medlemmer)"],
             ["Aftale",            "master_agreement_kinds", "Opret nye, rediger label/aktiv/kræver overenskomsttype. De to systemtyper (hourly_fixed/hourly_flexible) kan ikke slettes; nye typer kan slettes hvis ingen medarbejder bruger dem."],
             ["Auto-godkendelse",  "(indstilling, ingen egen tabel)", "Slå den statistiske baseline-auto-godkendelse til/fra globalt (GET/POST /api/auto-approval/settings). Kræver desuden 'manage_auto_approval'-rettigheden ud over 'stamdata'."],
         ]
@@ -2276,7 +2287,8 @@ def build_teknisk():
     body(doc, (
         "Rettighederne findes i ALL_PERMISSIONS (auth.py; dagsplan_edit vises som 'Redigere "
         "dagsplan'), men tildeles ikke automatisk nogen rolle. 'admin' har dem som systemrolle; "
-        "øvrige roller skal have dem via rolle-editoren."
+        "øvrige roller skal have dem via rolle-editoren. Håndhævelsen testes over rigtige "
+        "HTTP-kald i tests/test_dagsplan_permission_enforcement.py (2026-10-08)."
     ))
 
     heading(doc, "API-endepunkter", 2, "14.2")
@@ -2307,24 +2319,45 @@ def build_teknisk():
         "og grå (none – hverken tildelt eller fraværende). En medarbejder med fravær forbliver rød "
         "selv når vedkommende samtidig er skrevet i chauffør-kolonnen; har vedkommende BÅDE en "
         "kommentar og fravær, vises gul, og kommentaren vises i stedet for fraværsteksten. "
-        "Medarbejderlisten indeholder kun aktive medarbejdere i en disponentgruppe der er synlig i "
-        "aktivitetsoversigten. Fraværsopslaget bruger activity_type != 'normal', så også "
-        "overnatning/DOB tælles som fravær."
+        "Medarbejderlisten (dagsplan_employees()) indeholder aktive medarbejdere, der ikke er "
+        "funktionærer, i en disponentgruppe med visible_in_dagsplan ('Medtag i Dagsplan'); uden "
+        "gruppe udelades. Samme liste bruges af chauffør-vælgeren i vogntabellen (2026-10-08). "
+        "Fraværsopslaget udelader NON_ABSENCE_TYPES (normal, overnatning, dob_overnatning), så "
+        "overnatning hverken giver rød farve eller fraværsadvarsel (2026-10-08)."
     ))
     body(doc, (
-        "For hver tildelt medarbejder slås dagens 'normal'-type aktiviteter op. Findes mindst én "
-        "med et vehicle_number der afviger fra den tildelte vogns vehicle_number, sættes "
-        "mismatch_vehicle_number til den afvigende værdi – vist i frontend som et ⚠️-ikon med "
-        "tooltip 'vognnummer i løn: xxx'. Andre aktivitetstyper (fravær) indgår ikke i "
-        "sammenligningen."
+        "For hver tildelt medarbejder slås dagens ikke-deaktiverede 'normal'-aktiviteter op. "
+        "Vagter med flere biler tjekkes bil for bil via vehicle_uses: enhver anden bil end den "
+        "tildelte giver advarsel, også når den tildelte er hovedbil. Enkeltbil-vagter sammenligner "
+        "vehicle_number. mismatch_vehicle_number er en kommasepareret liste over de afvigende "
+        "vognnumre (ukendt plade vises som registreringsnummer) – vist i frontend som et ⚠️-ikon "
+        "med tooltip 'vognnummer i løn: xxx'. Fravær indgår ikke i sammenligningen (2026-10-08)."
+    ))
+    body(doc, (
+        "Vogntype-filteret (Forvogn/Trækker/Ladbil/Øvrige) er rent klient-side: "
+        "_dagsplanVehicleType() i app.js udleder typen af første bogstav i description "
+        "(trim + store bogstaver; F/M, T, L, ellers Øvrige), og renderDagsplanMain() filtrerer "
+        "de allerede hentede rækker ud fra state.dagsplan.typeFilter (tomt sæt = ingen "
+        "filtrering). Afdelingsfilteret anvendes også klient-side og LÆGGES SAMMEN med "
+        "typefilteret (vogn vises hvis afdeling ELLER type passer); medarbejderfilteret sendes "
+        "fortsat som employee_id til serveren og skal altid passe. EKSTRA-rækker har "
+        "dispatcher_group_id fra deres valgte vogn og vises med aktivt typefilter kun når "
+        "vognen passer. API'ets dispatcher_group_id-parameter findes stadig, men bruges ikke "
+        "af frontend. "
+        "Slettede vogne med en historisk tildeling den viste dag medtages som skrivebeskyttede "
+        "rækker (deleted: true) og vises gråt med '(slettet)'. Slettede vogne kan ikke tildeles "
+        "(400), og deres materielle fravær kan ikke slettes (vises som historik med "
+        "vehicle_deleted: true)."
     ))
 
     heading(doc, "Autoudfyld af vognnummer", 2, "14.4")
     body(doc, (
-        "create_manual_activity() (activities.py) slår daily_plan_assignments op på "
-        "(employee_id, start_time.date()), når en 'normal tid'-aktivitet oprettes med tomt "
-        "vehicle_number. Findes en tildeling med en vogn, udfyldes vehicle_number automatisk fra "
-        "den. Gælder KUN 'normal tid' og overskriver aldrig et allerede udfyldt vognnummer. "
+        "create_manual_activity() (activities.py) bruger effective_vehicle_for_employee() "
+        "(calculators/dagsplan_helpers.py), når en 'normal tid'-aktivitet oprettes med tomt "
+        "vehicle_number. Reglen er præcis den samme som Dagsplan-tabellen (2026-10-08): kun "
+        "Vognpark-markerede, ikke-slettede vogne; en gemt tildeling vinder; ellers medarbejderens "
+        "Fast bil – men kun hvis medarbejderen er aktiv, og vognen ikke har en gemt tildeling den "
+        "dag (givet til en anden eller ryddet). Gælder KUN 'normal tid' og overskriver aldrig et allerede udfyldt vognnummer. "
         "Fraværstyper forudfyldes i stedet fra medarbejderens 'Vognnummer ved fravær' "
         "(Employee.absence_vehicle_id, applyAbsenceVehicleDefault() i frontend) – siden "
         "2026-09-30 uden fallback til disponentgruppens standardvogn. "
@@ -2487,10 +2520,10 @@ def build_teknisk():
     header_table(doc,
         ["Endepunkt", "Metode", "Rettighed", "Beskrivelse"],
         [
-            ["/api/vehicles",       "GET",    "Én af flere*",    "Liste over alle køretøjer. *Kræver mindst én af: view_vehicles, manage_vehicles, view_calendar, edit_activities, vagtplan_view, dagsplan_view, view_employees, manage_employees, payroll_settlement_view, stamdata – vognlisten bruges af flere skærmbilleder."],
-            ["/api/vehicles",       "POST",   "manage_vehicles", "Opret. Registration_number skal være unikt."],
-            ["/api/vehicles/{id}",  "PATCH",  "manage_vehicles", "Rediger."],
-            ["/api/vehicles/{id}",  "DELETE", "manage_vehicles", "Slet – blokeres (400) hvis vognens registration_number bruges af eksisterende aktiviteter. Andre referencer (fast bil, vognnummer ved fravær, dagsplan, materielt fravær) tjekkes ikke."],
+            ["/api/vehicles",       "GET",    "Én af flere*",    "Liste over alle ikke-slettede køretøjer. *Kræver mindst én af: view_vehicles, manage_vehicles, view_calendar, edit_activities, vagtplan_view, dagsplan_view, view_employees, manage_employees, payroll_settlement_view, stamdata – vognlisten bruges af flere skærmbilleder."],
+            ["/api/vehicles",       "POST",   "manage_vehicles", "Opret. Registration_number skal være unikt blandt ikke-slettede vogne (en slettet vogns plade omdøbes)."],
+            ["/api/vehicles/{id}",  "PATCH",  "manage_vehicles", "Rediger (404 for slettede vogne)."],
+            ["/api/vehicles/{id}",  "DELETE", "manage_vehicles", "Blød sletning (2026-10-08, se afsnit 2.7). 409 med advarsel, hvis vognen er skrevet på ikke-deaktiverede vagter i en ulåst lønperiode (reg.nr., vognnr. uden reg.nr., eller i vehicle_uses) eller er fast bil/fraværsvogn/standardvogn. ?force=true gennemfører."],
         ]
     )
     body(doc, (
@@ -3889,29 +3922,67 @@ def build_bruger():
     heading(doc, "Dagsplan-fanen", 2, "13.1")
     body(doc, (
         "Øverst navigerer du mellem dage med ◀ / ▶ eller datovælgeren (default: dags dato). "
-        "Disponentgruppe-filteret og det søgbare medarbejder-filter indsnævrer kun hovedtabellen "
-        "– sidelisten er altid upåvirket af filtrene. Sidelisten viser aktive medarbejdere i de "
-        "disponentgrupper der vises i aktivitetsoversigten; medarbejdere uden gruppe er ikke med."
+        "Disponentgruppe-filteret (viser kun grupper med 'Medtag i Dagsplan') og det søgbare "
+        "medarbejder-filter indsnævrer kun hovedtabellen "
+        "– sidelisten er altid upåvirket af filtrene. Sidelisten og chauffør-vælgeren viser de "
+        "samme personer: aktive medarbejdere, der ikke er funktionærer, i disponentgrupper med "
+        "fluebenet 'Medtag i Dagsplan' (Stamdata → Disponentgrupper). Medarbejdere uden gruppe "
+        "er ikke med."
     ))
+    body(doc, (
+        "Vogntype-filteret (afkrydsning, flere valg) indsnævrer også kun hovedtabellen. Typen "
+        "udledes af første bogstav i vognens Beskrivelse – store/små bogstaver og mellemrum "
+        "foran ignoreres:"
+    ))
+    two_col_table(doc, [
+        ["Forvogn", "Beskrivelsen starter med F eller M."],
+        ["Trækker", "Beskrivelsen starter med T."],
+        ["Ladbil",  "Beskrivelsen starter med L."],
+        ["Øvrige",  "Alt andet, også vogne uden beskrivelse."],
+    ])
+    body(doc, (
+        "Er intet afkrydset, vises alle vogne. Når en type er valgt, vises EKSTRA-rækker kun, "
+        "hvis der er valgt en vogn på rækken, som passer til filtrene – tomme EKSTRA-rækker skjules."
+    ))
+    note_box(doc,
+        "Afdeling og vogntype lægges SAMMEN: vælger du fx afdelingen Storkran og krydser "
+        "'Trækker' af, ser du alle Storkrans vogne PLUS alle afdelingers trækkere. "
+        "Medarbejder-filteret skal derimod altid passe – vælger du en medarbejder, vises kun "
+        "vogne med den medarbejder.",
+        "GODT AT VIDE"
+    )
+    note_box(doc,
+        "Er listen tom, er der endnu ingen disponentgrupper med 'Medtag i Dagsplan'. Grupper "
+        "der fandtes før 8/10-2026 står som udgangspunkt til Nej og skal slås til i Stamdata.",
+        "VIGTIGT"
+    )
     header_table(doc,
         ["Kolonne", "Indhold"],
         [
             ["Vognnummer",  "Vognens nummer (fra Vognpark)."],
             ["Beskrivelse", "Vognens beskrivelse, hvis udfyldt under Vognpark."],
             ["Chauffør",    "Søgbar medarbejder-vælger. Er medarbejderens 'Fast bil' sat til denne vogn (se afsnit 7.2), foreslås vedkommende automatisk – forslaget kan altid ændres."],
-            ["Opgave",      "Frit tekstfelt."],
+            ["Opgave",      "Frit tekstfelt. Lang tekst ombrydes, så rækken bliver højere og al tekst kan ses. Enter gemmer."],
             ["Informeret",  "Afkrydsningsfelt – markér når chaufføren er informeret om dagens tildeling."],
         ]
     )
     body(doc, (
         "Under hovedtabellen findes 10 faste 'EKSTRA'-rækker til hjælp på pladsen eller lærlinge "
-        "– samme felter som ovenfor, men uden vognnummer og uden vognnummer-autoudfyldning på "
-        "aktiviteter."
+        "– samme felter som ovenfor, men uden vognnummer-autoudfyldning på aktiviteter."
     ))
-    bullet(doc, "En medarbejder med registreret fravær den valgte dag vises med rødt i sidelisten – og forbliver rødt, selv hvis vedkommende samtidig er skrevet i en Chauffør-kolonne. OBS: overnatning tæller også som fravær her.")
+    body(doc, (
+        "Vil du sætte en vogn på en EKSTRA-række, så klik i feltet hvor der står 'EKSTRA' og vælg "
+        "en vogn. Du kan kun vælge vogne, der ikke har fluebenet 'Vognpark' (de har allerede "
+        "deres egen række). Vognens beskrivelse vises, og har vognen en fast chauffør, skrives "
+        "vedkommende automatisk ind. Vognen gælder kun den valgte dag – næste dag står rækken "
+        "som EKSTRA igen. Vælg '— EKSTRA (ingen vogn) —' eller tøm feltet for at fjerne vognen – "
+        "så fjernes chaufføren også, og rækken bliver grå igen."
+    ))
+    bullet(doc, "En medarbejder med registreret fravær den valgte dag vises med rødt i sidelisten – og forbliver rødt, selv hvis vedkommende samtidig er skrevet i en Chauffør-kolonne. Overnatning tæller ikke som fravær.")
     bullet(doc, "En medarbejder med en vagtplan-kommentar den dag vises med gult (også hvis der samtidig er fravær – så vises kommentaren). Grøn = tildelt en vogn/EKSTRA-plads, grå = hverken tildelt eller fraværende.")
     bullet(doc, "En vogn med meldt materielt fravær (se afsnit 13.2) vises rødt i hovedtabellen.")
-    bullet(doc, "Er der uoverensstemmelse mellem den tildelte vogn og vognnummeret på chaufførens egen 'normal tid'-aktivitet den dag, vises et ⚠️-ikon med tooltip 'vognnummer i løn: xxx' ved chaufførnavnet.")
+    bullet(doc, "Har chaufføren den dag kørt i en anden bil end den tildelte (også hvis det kun var en del af vagten), vises et ⚠️-ikon med tooltip 'vognnummer i løn: xxx' ved chaufførnavnet. Deaktiverede aktiviteter tæller ikke med.")
+    bullet(doc, "En vogn der er slettet fra Vognpark, vises på gamle datoer, hvor den var tildelt, som en grå række med '(slettet)'. Den kan ikke redigeres.")
     note_box(doc,
         "Forsøger du at tildele en medarbejder, der allerede har en anden tildeling (eller "
         "registreret fravær) samme dag, viser systemet en advarsel i stedet for at blokere "
@@ -3919,9 +3990,10 @@ def build_bruger():
         "BEMÆRK"
     )
     note_box(doc,
-        "Opretter du en 'normal tid'-aktivitet for en chauffør med en tildelt vogn i Dagsplan "
-        "den pågældende dag, udfyldes vognnummeret automatisk på aktiviteten – medmindre feltet "
-        "allerede er udfyldt. Dette rører ikke ved fraværstyper eller EKSTRA-rækkerne.",
+        "Opretter du en 'normal tid'-aktivitet for en chauffør, der står på en vogn i Dagsplan "
+        "den pågældende dag (tildelt eller via 'Fast bil'), udfyldes vognnummeret automatisk på "
+        "aktiviteten – medmindre feltet allerede er udfyldt. Det er altid den vogn, du ser i "
+        "Dagsplanen. Dette rører ikke ved fraværstyper eller EKSTRA-rækkerne.",
         "GODT AT VIDE"
     )
 
@@ -4033,6 +4105,16 @@ def build_bruger():
         "sorteres efter vognnummer.",
         "BEMÆRK"
     )
+    heading(doc, "Slet en vogn", 2, "16.1")
+    body(doc, (
+        "Åbn vognen og klik 'Slet'. Vognen forsvinder fra Vognpark og fra alle steder, hvor man "
+        "vælger vogn, men vognnummeret bliver stående som tekst på gamle vagter, i Lønafregning "
+        "og i gamle Dagsplan-rækker og materielt fravær."
+    ))
+    bullet(doc, "Er vognen skrevet på vagter i en lønperiode, der ikke er låst, viser systemet en advarsel. Bekræfter du, slettes vognen alligevel.")
+    bullet(doc, "Er vognen 'Fast bil', 'Vognnummer ved fravær' eller en disponentgruppes vogn, nævnes det i advarslen, og koblingen fjernes.")
+    bullet(doc, "Planlægning i Dagsplan og materielt fravær efter i dag fjernes.")
+    bullet(doc, "Opretter du senere en vogn med samme nummerplade, er det tilladt – den slettede vogns plade får tilføjet '(slettet …)'.")
 
     # ── 17. Auto-godkendelse ─────────────────────────────────────────────
     doc.add_page_break()

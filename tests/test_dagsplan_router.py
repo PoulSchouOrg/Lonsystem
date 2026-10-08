@@ -27,11 +27,9 @@ def _vehicle(db, number="52", reg="BN47449", vognpark=True):
 
 
 def _visible_group(db, name="Testgruppe", visible=True):
-    """En disponentgruppe der (som default) vises i Aktivitetsoversigten -
-    medarbejdere skal have en af disse for at optræde i Dagsplanens
-    medarbejderliste (kol. 6-7), jf. _active_employees() i payroll_router.py
-    og _empHasVisibleGroup() i app.js."""
-    g = DispatcherGroup(name=name, visible_in_activity_overview=visible)
+    """En disponentgruppe med "Medtag i Dagsplan" (som default) - medarbejdere
+    skal have en af disse for at optræde i Dagsplanens chaufførlister (2026-10-08)."""
+    g = DispatcherGroup(name=name, visible_in_dagsplan=visible)
     db.add(g)
     db.commit()
     db.refresh(g)
@@ -40,12 +38,9 @@ def _visible_group(db, name="Testgruppe", visible=True):
 
 # NOTE: these tests call the route functions directly (matching this repo's
 # existing convention, e.g. tests/test_activity_auto_approve_on_create.py) so
-# they exercise only the endpoints' own logic - the `Depends(require_permission(...))`
-# guard on each endpoint only runs through FastAPI's dependency injection on a
-# real HTTP request, not on a direct Python call, so permission enforcement is
-# intentionally NOT re-tested here (this repo has no existing precedent for
-# unit-testing `require_permission`-gated endpoints - see e.g.
-# tests/test_employee_supplements.py, which has none either).
+# they exercise only the endpoints' own logic - permission enforcement of
+# dagsplan_view/dagsplan_edit is tested over HTTP in
+# tests/test_dagsplan_permission_enforcement.py.
 
 
 def test_get_dagsplan_lists_vehicles_and_employees(db, employee):
@@ -63,8 +58,8 @@ def test_get_dagsplan_lists_vehicles_and_employees(db, employee):
 
 
 def test_employee_list_excludes_employees_without_visible_dispatcher_group(db, employee):
-    """Kun medarbejdere i disponentgrupper der vises i Aktivitetsoversigten
-    må optræde i Dagsplanens medarbejderliste (kol. 6-7)."""
+    """Kun medarbejdere i disponentgrupper med "Medtag i Dagsplan" må optræde
+    i Dagsplanens chaufførlister; uden disponentgruppe udelades også."""
     from routers.dagsplan_router import get_dagsplan
 
     no_group = Employee(

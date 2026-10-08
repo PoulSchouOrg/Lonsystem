@@ -269,6 +269,13 @@ def _migrate():
                 "BOOLEAN NOT NULL DEFAULT 1"
             )
             conn.commit()
+        if "visible_in_dagsplan" not in dg_cols:
+            # Bevidst 0 for alle eksisterende grupper (brugerens valg 2026-10-08).
+            conn.execute(
+                "ALTER TABLE dispatcher_groups ADD COLUMN visible_in_dagsplan "
+                "BOOLEAN NOT NULL DEFAULT 0"
+            )
+            conn.commit()
         veh_cols = {row[1] for row in conn.execute("PRAGMA table_info(vehicles)")}
         if "description" not in veh_cols:
             conn.execute("ALTER TABLE vehicles ADD COLUMN description TEXT")
@@ -278,6 +285,13 @@ def _migrate():
             conn.commit()
         if "vognpark" not in veh_cols:
             conn.execute("ALTER TABLE vehicles ADD COLUMN vognpark BOOLEAN NOT NULL DEFAULT 0")
+            conn.commit()
+        if "deleted_at" not in veh_cols:
+            conn.execute("ALTER TABLE vehicles ADD COLUMN deleted_at DATETIME")
+            conn.commit()
+        extra_cols = {row[1] for row in conn.execute("PRAGMA table_info(daily_plan_extra_assignments)")}
+        if extra_cols and "vehicle_id" not in extra_cols:
+            conn.execute("ALTER TABLE daily_plan_extra_assignments ADD COLUMN vehicle_id INTEGER")
             conn.commit()
         emp_cols3 = {row[1] for row in conn.execute("PRAGMA table_info(employees)")}
         if "fast_bil" not in emp_cols3:

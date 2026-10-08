@@ -255,6 +255,9 @@ class DispatcherGroup(Base):
     name = Column(String, nullable=False, unique=True)
     description = Column(Text, nullable=True)
     visible_in_activity_overview = Column(Boolean, nullable=False, default=True)
+    # Gruppens medarbejdere optræder i Dagsplanens chaufførlister (2026-10-08).
+    # Eksisterende grupper migreres bevidst til False (brugerens valg).
+    visible_in_dagsplan = Column(Boolean, nullable=False, default=False, server_default="0")
     vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True)
 
     employees = relationship("Employee", back_populates="dispatcher_group")
@@ -343,12 +346,16 @@ class DailyPlanExtraAssignment(Base):
     id = Column(Integer, primary_key=True)
     date = Column(Date, nullable=False)
     slot = Column(Integer, nullable=False)  # 1-10
+    # Valgfri vogn på linjen (2026-10-08) – kun vogne UDEN Vognpark-flueben, kun
+    # for denne dag. Bruges kun til visning og ⚠️-advarsel, ikke til autoudfyld.
+    vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=True)
     employee_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
     task = Column(String, nullable=True)
     informed = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
+    vehicle = relationship("Vehicle")
     employee = relationship("Employee")
 
     __table_args__ = (
@@ -372,6 +379,10 @@ class VehicleAbsence(Base):
     @property
     def vehicle_number(self) -> str | None:
         return self.vehicle.vehicle_number if self.vehicle else None
+
+    @property
+    def vehicle_deleted(self) -> bool:
+        return bool(self.vehicle and self.vehicle.deleted_at)
 
 
 class PayrollRun(Base):
@@ -397,6 +408,10 @@ class Vehicle(Base):
     description = Column(Text, nullable=True)                           # "Beskrivelse" (Dagsplan kol. 2)
     dispatcher_group_id = Column(Integer, ForeignKey("dispatcher_groups.id"), nullable=True)
     vognpark = Column(Boolean, default=False, nullable=False)           # Indgår i Dagsplanens vognkolonne
+    # Blød sletning (2026-10-08): rækken bevares, så vognnummeret stadig kan
+    # vises som død tekst på gamle vagter, i Lønafregning og i gamle
+    # Dagsplan-rækker. Slettede vogne skjules alle steder hvor man vælger vogn.
+    deleted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     # Mange vogne -> én gruppe. Adskilt fra DispatcherGroup.vehicle_id (én

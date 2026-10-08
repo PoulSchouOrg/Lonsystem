@@ -42,6 +42,7 @@ const state = {
     date: null,
     data: null,
     tab: "plan",
+    typeFilter: new Set(), // forvogn/traekker/ladbil/oevrige - tom = alle vises
   },
 };
 
@@ -576,9 +577,12 @@ function fillDagsplanFilters() {
   const groupSel = document.getElementById("dagsplan-filter-dispatcher-group");
   if (groupSel) {
     const current = groupSel.value;
+    // Kun disponentgrupper med "Medtag i Dagsplan" (2026-10-08).
     groupSel.innerHTML = `<option value="">Alle afdelinger</option>` + state.dispatcherGroups
+      .filter(g => g.visible_in_dagsplan)
       .map(g => `<option value="${g.id}">${h(g.name)}</option>`).join("");
     groupSel.value = current;
+    if (groupSel.value !== current) groupSel.value = ""; // valgt gruppe er ikke længere med
   }
   const empSel = document.getElementById("dagsplan-filter-employee");
   if (empSel) {
@@ -605,10 +609,10 @@ async function _refreshDagsplanData() {
     `Dagsplan – d. ${formatDate(state.dagsplan.date + "T00:00:00")}`;
   setLoading(true);
   try {
-    const groupId = document.getElementById("dagsplan-filter-dispatcher-group")?.value || "";
+    // Afdelingsfilteret anvendes i renderDagsplanMain() (lægges sammen med
+    // vogntype-filteret); medarbejderfilteret skal altid passe og sendes til serveren.
     const empId = document.getElementById("dagsplan-filter-employee")?.value || "";
     const qs = new URLSearchParams({ date: state.dagsplan.date });
-    if (groupId) qs.set("dispatcher_group_id", groupId);
     if (empId) qs.set("employee_id", empId);
     state.dagsplan.data = await GET(`/api/dagsplan?${qs.toString()}`);
     renderDagsplanMain();
@@ -629,10 +633,38 @@ function jumpToDagsplanToday() {
   loadDagsplan();
 }
 
+// Vogntype ud fra første bogstav i Beskrivelse (store/små bogstaver og
+// indledende mellemrum ignoreres): F/M = Forvogn, T = Trækker, L = Ladbil,
+// alt andet (inkl. tom) = Øvrige.
+function _dagsplanVehicleType(description) {
+  const c = (description || "").trim().charAt(0).toUpperCase();
+  if (c === "F" || c === "M") return "forvogn";
+  if (c === "T") return "traekker";
+  if (c === "L") return "ladbil";
+  return "oevrige";
+}
+
+function onDagsplanTypeFilterChange() {
+  state.dagsplan.typeFilter = new Set(
+    [...document.querySelectorAll("#dagsplan-filter-type input:checked")].map(el => el.value)
+  );
+  renderDagsplanMain();
+}
+
 function renderDagsplanMain() {
   const body = document.getElementById("dagsplan-main-body");
   const canEdit = _canEditDagsplan();
-  const rows = state.dagsplan.data?.vehicles || [];
+  // Afdeling og vogntype LÆGGES SAMMEN (brugerens valg 2026-10-08): en vogn vises,
+  // hvis den hører til den valgte afdeling ELLER er af en afkrydset type.
+  // Fx Storkran + Trækker = alle Storkrans vogne + alle afdelingers trækkere.
+  const types = state.dagsplan.typeFilter;
+  const groupId = parseInt(document.getElementById("dagsplan-filter-dispatcher-group")?.value) || null;
+  const typeMatches = description => types.has(_dagsplanVehicleType(description));
+  const vehicleVisible = (groupOfVehicle, description) =>
+    (!groupId && !types.size) ||
+    (groupId && groupOfVehicle === groupId) ||
+    (types.size > 0 && typeMatches(description));
+  const rows = (state.dagsplan.data?.vehicles || []).filter(v => vehicleVisible(v.dispatcher_group_id, v.description));
 
   const vehicleRowClass = v => {
     if (v.absent) return "dagsplan-vehicle-absent"; // vognen selv er materielt fraværende - højeste prioritet
@@ -644,7 +676,16 @@ function renderDagsplanMain() {
     if (empStatus === "absent") return "dagsplan-vehicle-absent";
     return "dagsplan-vehicle-assigned";
   };
-  let html = rows.map(v => `
+  // Slettet vogn med historisk tildeling: kun død tekst, intet kan redigeres.
+  const deletedRow = v => `
+    <tr class="dagsplan-vehicle-deleted" title="Vognen er slettet fra vognparken">
+      <td>${h(v.vehicle_number)} <span style="color:var(--text-light)">(slettet)</span></td>
+      <td>${h(v.description || "")}</td>
+      <td>${h(v.employee_name || "")}</td>
+      <td>${h(v.task || "")}</td>
+      <td style="text-align:center">${v.informed ? "&#10003;" : ""}</td>
+    </tr>`;
+  let html = rows.map(v => v.deleted ? deletedRow(v) : `
     <tr data-vehicle-id="${v.vehicle_id}" class="${vehicleRowClass(v)}">
       <td>${h(v.vehicle_number)}</td>
       <td>${h(v.description || "")}</td>
@@ -656,7 +697,7 @@ function renderDagsplanMain() {
           ${v.mismatch_vehicle_number ? `<span title="vognnummer i løn: ${h(v.mismatch_vehicle_number)}" style="color:var(--warning)">&#9888;</span>` : ""}
         </div>
       </td>
-      <td><input type="text" class="ds-task-input" data-vehicle-id="${v.vehicle_id}" value="${h(v.task || "")}" ${canEdit ? "" : "disabled"} style="width:100%;padding:4px 6px"></td>
+      <td><textarea class="ds-task-input" data-vehicle-id="${v.vehicle_id}" rows="1" ${canEdit ? "" : "disabled"}>${h(v.task || "")}</textarea></td>
       <td style="text-align:center"><input type="checkbox" class="ds-informed-input" data-vehicle-id="${v.vehicle_id}" ${v.informed ? "checked" : ""} ${canEdit ? "" : "disabled"}></td>
     </tr>`).join("");
 
@@ -669,17 +710,29 @@ function renderDagsplanMain() {
     if (empStatus === "absent") return "dagsplan-vehicle-absent";
     return "dagsplan-vehicle-assigned";
   };
-  const extraRows = state.dagsplan.data?.extra_rows || [];
+  // EKSTRA-linjer: med typefilter vises kun linjer med en vogn, der passer på
+  // afdeling eller type (tomme skjules). Kun afdelingsfilter = alle vises som hidtil.
+  const extraRows = (state.dagsplan.data?.extra_rows || [])
+    .filter(r => !types.size || (r.vehicle_id && vehicleVisible(r.dispatcher_group_id, r.description)));
+  // Vognfeltet viser "EKSTRA" indtil en vogn (uden Vognpark-flueben) vælges for dagen.
+  const extraVehicleCell = row => row.vehicle_deleted
+    ? `${h(row.vehicle_number)} <span style="color:var(--text-light)">(slettet)</span>`
+    : `<input type="text" class="ds-extra-vehicle-input" data-extra-idx="${row.slot}"
+              value="${h(row.vehicle_number || "")}" autocomplete="off" ${canEdit ? "" : "disabled"}
+              placeholder="EKSTRA" style="width:100%;padding:4px 6px">`;
   html += extraRows.map(row => `
     <tr data-extra-idx="${row.slot}" class="${extraRowClass(row)}">
-      <td>EKSTRA</td>
-      <td></td>
+      <td>${extraVehicleCell(row)}</td>
+      <td>${h(row.description || "")}</td>
       <td>
-        <input type="text" class="ds-chauffeur-input" data-extra-idx="${row.slot}"
-               value="${h(row.employee_name || "")}" autocomplete="off" ${canEdit ? "" : "disabled"}
-               placeholder="Vælg chauffør…" style="width:100%;padding:4px 6px">
+        <div style="position:relative;display:flex;align-items:center;gap:4px">
+          <input type="text" class="ds-chauffeur-input" data-extra-idx="${row.slot}"
+                 value="${h(row.employee_name || "")}" autocomplete="off" ${canEdit ? "" : "disabled"}
+                 placeholder="Vælg chauffør…" style="width:100%;padding:4px 6px">
+          ${row.mismatch_vehicle_number ? `<span title="vognnummer i løn: ${h(row.mismatch_vehicle_number)}" style="color:var(--warning)">&#9888;</span>` : ""}
+        </div>
       </td>
-      <td><input type="text" class="ds-task-input" data-extra-idx="${row.slot}" value="${h(row.task || "")}" ${canEdit ? "" : "disabled"} style="width:100%;padding:4px 6px"></td>
+      <td><textarea class="ds-task-input" data-extra-idx="${row.slot}" rows="1" ${canEdit ? "" : "disabled"}>${h(row.task || "")}</textarea></td>
       <td style="text-align:center"><input type="checkbox" class="ds-informed-input" data-extra-idx="${row.slot}" ${row.informed ? "checked" : ""} ${canEdit ? "" : "disabled"}></td>
     </tr>`).join("");
 
@@ -699,15 +752,36 @@ function renderDagsplanMain() {
         _saveDagsplanRow(el.dataset, null);
         return;
       }
-      const match = state.employees.find(e => e.active && e.name.toLowerCase() === val.toLowerCase());
+      const match = (state.dagsplan.data?.employees || [])
+        .find(e => e.employee_name.toLowerCase() === val.toLowerCase());
       if (match) {
-        _saveDagsplanRow(el.dataset, match.id);
+        _saveDagsplanRow(el.dataset, match.employee_id);
       } else {
         renderDagsplanMain(); // ufuldstændig/ugyldig indtastning - gendan den gemte værdi
       }
     });
   });
+  body.querySelectorAll(".ds-extra-vehicle-input").forEach(el => {
+    el.addEventListener("focus", () => _renderDagsplanExtraVehicleResults(el));
+    el.addEventListener("input", () => _renderDagsplanExtraVehicleResults(el));
+    el.addEventListener("blur", () => {
+      // Samme princip som chaufførfeltet: tomt felt = fjern vognen, præcist
+      // vognnummer = gem, ellers gendan den gemte værdi.
+      const val = el.value.trim().toUpperCase();
+      const current = state.dagsplan.data?.extra_rows?.find(r => r.slot === parseInt(el.dataset.extraIdx));
+      if (val === (current?.vehicle_number || "").toUpperCase()) return;
+      if (val === "") { _saveDagsplanRow(el.dataset, undefined, null); return; }
+      const match = _dagsplanExtraVehicleOptions().find(v => v.vehicle_number.toUpperCase() === val);
+      if (match) _saveDagsplanRow(el.dataset, undefined, match.id);
+      else renderDagsplanMain();
+    });
+  });
+  // Opgavefeltet ombryder teksten og vokser i højden, så al tekst kan ses.
+  const autoGrow = el => { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; };
   body.querySelectorAll(".ds-task-input").forEach(el => {
+    autoGrow(el);
+    el.addEventListener("input", () => autoGrow(el));
+    el.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); el.blur(); } }); // Enter gemmer, ingen linjeskift
     el.addEventListener("blur", () => _saveDagsplanRow(el.dataset));
   });
   body.querySelectorAll(".ds-informed-input").forEach(el => {
@@ -718,10 +792,13 @@ function renderDagsplanMain() {
 function _renderDagsplanChauffeurResults(inputEl) {
   const dropdown = document.getElementById("dagsplan-chauffeur-dropdown");
   const q = inputEl.value.toLowerCase().trim();
-  const matches = state.employees.filter(e => e.active && (!q || e.name.toLowerCase().includes(q)))
-    .sort((a, b) => a.name.localeCompare(b.name, "da"));
+  // Samme chaufførliste som sidelisten (server-side: aktive, ikke funktionærer,
+  // i en disponentgruppe med "Medtag i Dagsplan").
+  const matches = (state.dagsplan.data?.employees || [])
+    .filter(e => !q || e.employee_name.toLowerCase().includes(q))
+    .sort((a, b) => a.employee_name.localeCompare(b.employee_name, "da"));
   const noneRow = `<div class="ds-chauffeur-item" data-id="" data-name="" style="padding:8px 10px;cursor:pointer;font-size:13px;color:var(--text-light)">— Ingen —</div>`;
-  const rows = matches.map(e => `<div class="ds-chauffeur-item" data-id="${e.id}" data-name="${h(e.name)}" style="padding:8px 10px;cursor:pointer;font-size:13px">${h(e.name)}</div>`).join("");
+  const rows = matches.map(e => `<div class="ds-chauffeur-item" data-id="${e.employee_id}" data-name="${h(e.employee_name)}" style="padding:8px 10px;cursor:pointer;font-size:13px">${h(e.employee_name)}</div>`).join("");
   dropdown.innerHTML = noneRow + (rows || `<div style="padding:8px 10px;color:var(--text-light);font-size:13px">Ingen medarbejdere fundet</div>`);
   // position:fixed - rect er allerede i viewport-koordinater, som fixed
   // positionering bruger direkte. Ingen scrollX/scrollY-tillæg (det ville
@@ -748,21 +825,61 @@ function _renderDagsplanChauffeurResults(inputEl) {
   });
 }
 
+// Vogne der kan vælges på en EKSTRA-linje: ikke slettede (state.vehicles) og
+// UDEN Vognpark-flueben - Vognpark-vognene har deres egen linje.
+const _dagsplanExtraVehicleOptions = () => (state.vehicles || []).filter(v => !v.vognpark);
+
+function _renderDagsplanExtraVehicleResults(inputEl) {
+  const dropdown = document.getElementById("dagsplan-chauffeur-dropdown");
+  const q = inputEl.value.toUpperCase().trim();
+  const matches = _dagsplanExtraVehicleOptions()
+    .filter(v => !q || v.vehicle_number.toUpperCase().includes(q) || v.registration_number.toUpperCase().includes(q))
+    .sort((a, b) => naturalCompare(a.vehicle_number, b.vehicle_number));
+  const noneRow = `<div class="ds-extra-vehicle-item" data-id="" data-num="" style="padding:8px 10px;cursor:pointer;font-size:13px;color:var(--text-light)">— EKSTRA (ingen vogn) —</div>`;
+  const rows = matches.map(v => `
+    <div class="ds-extra-vehicle-item" data-id="${v.id}" data-num="${h(v.vehicle_number)}" style="padding:8px 10px;cursor:pointer;font-size:13px">
+      ${h(v.vehicle_number)} <span style="color:var(--text-light)">– ${h(v.description || v.registration_number)}</span>
+    </div>`).join("");
+  dropdown.innerHTML = noneRow + (rows || `<div style="padding:8px 10px;color:var(--text-light);font-size:13px">Ingen vogne fundet</div>`);
+  const rect = inputEl.getBoundingClientRect();
+  const dropdownHeight = 220;
+  const opensUpward = rect.bottom + dropdownHeight > window.innerHeight && rect.top > dropdownHeight;
+  dropdown.style.left = `${rect.left}px`;
+  dropdown.style.top = opensUpward ? "" : `${rect.bottom}px`;
+  dropdown.style.bottom = opensUpward ? `${window.innerHeight - rect.top}px` : "";
+  dropdown.style.width = `${Math.max(rect.width, 220)}px`;
+  dropdown.style.display = "block";
+  dropdown.querySelectorAll(".ds-extra-vehicle-item").forEach(el => {
+    el.addEventListener("mouseover", () => el.style.background = "var(--bg)");
+    el.addEventListener("mouseout", () => el.style.background = "");
+    el.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      inputEl.value = el.dataset.num;
+      dropdown.style.display = "none";
+      _saveDagsplanRow(inputEl.dataset, undefined, el.dataset.id ? parseInt(el.dataset.id) : null);
+    });
+  });
+}
+
 document.addEventListener("click", (e) => {
-  if (!e.target.closest("#dagsplan-chauffeur-dropdown, .ds-chauffeur-input")) {
+  if (!e.target.closest("#dagsplan-chauffeur-dropdown, .ds-chauffeur-input, .ds-extra-vehicle-input")) {
     const dropdown = document.getElementById("dagsplan-chauffeur-dropdown");
     if (dropdown) dropdown.style.display = "none";
   }
 });
 
-async function _saveDagsplanRow(dataset, explicitEmployeeId) {
+// explicitVehicleId bruges kun på EKSTRA-linjer (vognvalg for dagen); udeladt =
+// linjens nuværende vogn. Har en ny vogn en fast chauffør, sætter serveren
+// selv chaufføren.
+async function _saveDagsplanRow(dataset, explicitEmployeeId, explicitVehicleId) {
   const isExtra = dataset.extraIdx !== undefined;
   const endpoint = isExtra ? "/api/dagsplan/extra-assignment" : "/api/dagsplan/assignment";
   const row = document.querySelector(
     isExtra ? `tr[data-extra-idx="${dataset.extraIdx}"]` : `tr[data-vehicle-id="${dataset.vehicleId}"]`
   );
+  const extraRow = isExtra ? state.dagsplan.data?.extra_rows?.find(r => r.slot === parseInt(dataset.extraIdx)) : null;
   const currentEmployeeId = isExtra
-    ? (state.dagsplan.data?.extra_rows?.find(r => r.slot === parseInt(dataset.extraIdx))?.employee_id ?? null)
+    ? (extraRow?.employee_id ?? null)
     : (state.dagsplan.data?.vehicles?.find(v => v.vehicle_id === parseInt(dataset.vehicleId))?.employee_id ?? null);
   const employeeId = explicitEmployeeId !== undefined ? explicitEmployeeId : currentEmployeeId;
   const body = {
@@ -770,7 +887,10 @@ async function _saveDagsplanRow(dataset, explicitEmployeeId) {
     employee_id: employeeId,
     task: row.querySelector(".ds-task-input").value || null,
     informed: row.querySelector(".ds-informed-input").checked,
-    ...(isExtra ? { slot: parseInt(dataset.extraIdx) } : { vehicle_id: parseInt(dataset.vehicleId) }),
+    ...(isExtra
+      ? { slot: parseInt(dataset.extraIdx),
+          vehicle_id: explicitVehicleId !== undefined ? explicitVehicleId : (extraRow?.vehicle_id ?? null) }
+      : { vehicle_id: parseInt(dataset.vehicleId) }),
   };
   try {
     await PATCH(endpoint, body);
@@ -822,10 +942,10 @@ function renderDagsplanAbsences(list) {
   const canEdit = _canEditDagsplan();
   body.innerHTML = list.map(a => `
     <tr>
-      <td>${h(a.vehicle_number)}</td>
+      <td>${h(a.vehicle_number)}${a.vehicle_deleted ? ` <span style="color:var(--text-light)">(slettet)</span>` : ""}</td>
       <td>${formatDate(a.date_from + "T00:00:00")}${a.date_to ? " – " + formatDate(a.date_to + "T00:00:00") : ""}</td>
       <td>${h(a.comment)}</td>
-      <td>${canEdit ? `<button class="btn btn-danger btn-sm" onclick="deleteVehicleAbsence(${a.id})">Slet</button>` : ""}</td>
+      <td>${canEdit && !a.vehicle_deleted ? `<button class="btn btn-danger btn-sm" onclick="deleteVehicleAbsence(${a.id})">Slet</button>` : ""}</td>
     </tr>`).join("") || `<tr><td colspan="4" class="empty-state"><div class="icon">🚛</div><h3>Intet meldt fravær</h3></td></tr>`;
 }
 
@@ -2535,7 +2655,7 @@ async function applyDagsplanVehicleDefault() {
   if (!empId || !dateStr) return;
   try {
     const data = await GET(`/api/dagsplan?date=${dateStr}&employee_id=${empId}`);
-    const match = data.vehicles.find(v => v.employee_id === empId);
+    const match = data.vehicles.find(v => v.employee_id === empId && !v.deleted);
     if (match && !regField.value.trim()) {
       regField.value = match.vehicle_number;
       _updateManualRegHint(); // kun hint - IKKE _renderManualRegDropdown, feltet er allerede udfyldt korrekt
@@ -4846,8 +4966,17 @@ async function deleteVehicle() {
   if (!_editingVehicleId) return;
   const v = state.vehicles.find(x => x.id === _editingVehicleId);
   if (!confirm(`Slet vogn ${v?.registration_number}?`)) return;
+  const url = `/api/vehicles/${_editingVehicleId}`;
   try {
-    await api("DELETE", `/api/vehicles/${_editingVehicleId}`);
+    try {
+      await api("DELETE", url);
+    } catch (e) {
+      // 409 = vognen er brugt i en ulåst lønperiode eller koblet til
+      // medarbejdere/grupper - vis advarslen og slet kun ved bekræftelse.
+      if (e.status !== 409) throw e;
+      if (!confirm(e.message)) return;
+      await api("DELETE", `${url}?force=true`);
+    }
     toast("Vogn slettet", "success");
     closeModal("modal-vehicle");
     await loadVehicles();
@@ -6752,7 +6881,7 @@ async function loadStamdataDispatcherGroups() {
     const rows = await GET("/api/stamdata/dispatcher-groups");
     rows.sort((a, b) => naturalCompare(a.name, b.name));
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-light)">Ingen disponentgrupper oprettet endnu</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text-light)">Ingen disponentgrupper oprettet endnu</td></tr>`;
       return;
     }
     const badge = (v, yes, no) => v
@@ -6765,14 +6894,15 @@ async function loadStamdataDispatcherGroups() {
         <td style="padding:10px 14px;text-align:center">${r.employee_count}</td>
         <td style="padding:10px 14px;text-align:center">${h(r.vehicle_number || "–")}</td>
         <td style="padding:10px 14px;text-align:center">${badge(r.visible_in_activity_overview, "Ja", "Nej")}</td>
+        <td style="padding:10px 14px;text-align:center">${badge(r.visible_in_dagsplan, "Ja", "Nej")}</td>
         <td style="padding:10px 14px;text-align:center">
           <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px;margin-right:4px"
-                  onclick="openStamdataDispatcherModal(${r.id},${jq(r.name)},${jq(r.description || "")},${r.visible_in_activity_overview},${r.vehicle_id || "null"},${jq(r.vehicle_number || "")})">Rediger</button>
+                  onclick="openStamdataDispatcherModal(${r.id},${jq(r.name)},${jq(r.description || "")},${r.visible_in_activity_overview},${r.vehicle_id || "null"},${jq(r.vehicle_number || "")},${r.visible_in_dagsplan})">Rediger</button>
           <button class="btn btn-danger" style="font-size:12px;padding:4px 10px"
                   onclick="deleteStamdataDispatcher(${r.id},${jq(r.name)},${r.employee_count})">Slet</button>
         </td>
       </tr>`).join("");
-  } catch (e) { tbody.innerHTML = `<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--danger)">${h(e.message)}</td></tr>`; }
+  } catch (e) { tbody.innerHTML = `<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--danger)">${h(e.message)}</td></tr>`; }
   // Ny/ændret gruppe kan påvirke medarbejder-modal og filtre
   try {
     state.dispatcherGroups = await GET("/api/employees/dispatcher-groups");
@@ -6824,11 +6954,12 @@ document.addEventListener("click", (e) => {
   }
 });
 
-function openStamdataDispatcherModal(id, name, description, visible, vehicleId, vehicleNumber) {
+function openStamdataDispatcherModal(id, name, description, visible, vehicleId, vehicleNumber, visibleInDagsplan) {
   document.getElementById("stamdata-dispatcher-id").value = id || "";
   document.getElementById("stamdata-dispatcher-name").value = name || "";
   document.getElementById("stamdata-dispatcher-description").value = description || "";
   document.getElementById("stamdata-dispatcher-visible").checked = id ? !!visible : true;
+  document.getElementById("stamdata-dispatcher-dagsplan").checked = !!visibleInDagsplan;
   document.getElementById("stamdata-dispatcher-vehicle-search").value = vehicleNumber || "";
   document.getElementById("stamdata-dispatcher-vehicle-id").value = vehicleId || "";
   document.getElementById("stamdata-dispatcher-vehicle-dropdown").style.display = "none";
@@ -6848,15 +6979,16 @@ async function confirmStamdataDispatcher() {
   const name = document.getElementById("stamdata-dispatcher-name").value.trim();
   const description = document.getElementById("stamdata-dispatcher-description").value.trim();
   const visible = document.getElementById("stamdata-dispatcher-visible").checked;
+  const visible_in_dagsplan = document.getElementById("stamdata-dispatcher-dagsplan").checked;
   const vehicleIdRaw = document.getElementById("stamdata-dispatcher-vehicle-id").value;
   const vehicle_id = vehicleIdRaw ? parseInt(vehicleIdRaw) : null;
   if (!name) { toast("Navn er påkrævet", "error"); return; }
   try {
     if (id) {
-      await PATCH(`/api/stamdata/dispatcher-groups/${id}`, { name, description, visible_in_activity_overview: visible, vehicle_id });
+      await PATCH(`/api/stamdata/dispatcher-groups/${id}`, { name, description, visible_in_activity_overview: visible, visible_in_dagsplan, vehicle_id });
       toast("Disponentgruppe opdateret");
     } else {
-      await POST("/api/stamdata/dispatcher-groups", { name, description, visible_in_activity_overview: visible, vehicle_id });
+      await POST("/api/stamdata/dispatcher-groups", { name, description, visible_in_activity_overview: visible, visible_in_dagsplan, vehicle_id });
       toast("Disponentgruppe oprettet");
     }
     closeModal("modal-stamdata-dispatcher");

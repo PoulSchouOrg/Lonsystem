@@ -316,6 +316,47 @@ dermed FastAPIs `Depends()`-injektion over. `test_dagsplan_permission_keys.py`
 tjekker kun at de to nøgler findes i `ALL_PERMISSIONS`, ikke at de håndhæves.
 Det oprindelige design antog fejlagtigt at håndhævelse var testdækket.
 
+## Ændringer 2026-10-08 (bekræftet af bruger)
+
+1. **Autoudfyld = Dagsplanens regel.** `effective_vehicle_for_employee()` bruger kun
+   Vognpark-markerede, ikke-slettede vogne, og Fast bil foreslås ikke, hvis vognen
+   har en gemt tildeling den dag (givet til en anden eller ryddet).
+2. **Overnatning (inkl. DOB) er ikke fravær** i Dagsplanen – ingen rød farve og
+   ingen fraværsadvarsel. Fraværsoversigten er uændret.
+3. **⚠️** vises, hvis *nogen* anden bil end den tildelte er kørt på dagens normal
+   tid-vagter (flere biler tjekkes via `vehicle_uses`); deaktiverede aktiviteter
+   tæller ikke med.
+4. **Sletning af vogn er blød** (`Vehicle.deleted_at`). Brug i ulåst lønperiode
+   → advarsel, sletning tilladt ved bekræftelse; vognnummeret står som død tekst
+   på vagter (låste og ulåste), i Lønafregning og i historiske Dagsplan-rækker/
+   materielt fravær. Fast bil, vognnummer ved fravær og standardvogn nulstilles;
+   fremtidige tildelinger/fravær fjernes. Genbruges nummerpladen, omdøbes den
+   slettede vogns plade.
+5. **Fast bil kræver aktiv medarbejder.**
+6. **Chaufførlister ens:** sideliste og chauffør-vælger viser aktive
+   ikke-funktionærer i disponentgrupper med det nye flueben "Medtag i Dagsplan"
+   (Stamdata → Disponentgrupper; eksisterende grupper = Nej). Erstatter filteret
+   på "Vis i aktivitetsoversigt".
+7. **Permission-håndhævelse testes** over HTTP
+   (`tests/test_dagsplan_permission_enforcement.py`) – afsnittet "Ikke dækket"
+   ovenfor gælder ikke længere.
+9. **Afdelingsfilteret** på Dagsplan-fanen viser kun disponentgrupper med
+   "Medtag i Dagsplan".
+10. **Vogntype-filter** (afkrydsning, flere valg): Forvogn (Beskrivelse starter
+    med F eller M), Trækker (T), Ladbil (L), Øvrige (alt andet/tom). Store/små
+    bogstaver og mellemrum foran ignoreres. Intet afkrydset = alle vises. Med
+    filter vises EKSTRA-linjer kun med en vogn, der passer. Kun frontend.
+    Afdeling og vogntype **lægges sammen** (Storkran + Trækker = alle Storkrans
+    vogne + alle trækkere); medarbejderfilteret skal altid passe.
+11. **Opgavefeltet** ombryder lang tekst (rækken bliver højere); Enter gemmer.
+
+8. **Vogn på EKSTRA-linjer.** Linjen forbliver EKSTRA, men der kan for den valgte
+   dag vælges en vogn uden Vognpark-flueben (`daily_plan_extra_assignments.vehicle_id`).
+   Beskrivelsen følger med, og vognens faste chauffør skrives på linjen. Vognen
+   bruges kun til ⚠️-advarslen – ikke til autoudfyld af vognnummer eller materielt
+   fravær. Samme vogn på to EKSTRA-linjer samme dag giver en advarsel. Fjernes
+   vognen igen, fjernes chaufføren også, og linjen bliver grå.
+
 ## Ikke omfattet
 - Ingen ændring af den eksisterende disponentgruppe-baserede
   autoudfyldning for fraværstyper.

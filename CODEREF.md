@@ -116,7 +116,7 @@ CRUD under Stamdata → "Disponentgrupper" (kræver `stamdata`-tilladelse). Ligh
 
 ### Øvrige
 - **PayPeriod**: start_date, end_date, status(open/preview/closed)
-- **Vehicle**: registration_number (nummerplade), vehicle_number (vognnr), description (Text nullable, Dagsplan kol. 2), dispatcher_group_id (Int FK nullable – mange vogne → én gruppe, adskilt fra `DispatcherGroup.vehicle_id`s "standardvogn"-relation, se linje ~586)
+- **Vehicle**: registration_number (nummerplade), vehicle_number (vognnr), description (Text nullable, Dagsplan kol. 2), vognpark (Bool), deleted_at (DateTime nullable – blød sletning, se "Dagsplan"), dispatcher_group_id (Int FK nullable – mange vogne → én gruppe, adskilt fra `DispatcherGroup.vehicle_id`s "standardvogn"-relation, se linje ~586)
 - **PayrollRun**: pay_period_id, run_type, csv_path, excel_path
 
 ### Dagsplan-tabeller (2026-09-09, se "Dagsplan" nedenfor)
@@ -644,15 +644,27 @@ Ny sidebar-side der digitaliserer den daglige fordeling af vogne til chauffører
 
 **Permissions** `dagsplan_view`/`dagsplan_edit` (`app/auth.py:34-35`) – tilføjes idempotent ved opstart, samme mønster som `manage_baselines`. `admin` får dem automatisk som systemrolle; andre roller kun via rolle-editoren.
 
-**Mismatch-advarsel:** for hver tildelt medarbejder slås dagens `normal`-type aktiviteter op. Afviger en akivitets `vehicle_number` fra den tildelte vogns, sættes `mismatch_vehicle_number` (⚠️-ikon + tooltip "vognnummer i løn: xxx" i frontend). Kun `normal`-aktiviteter indgår – fravær sammenlignes ikke.
+**Mismatch-advarsel (rettet 2026-10-08):** for hver tildelt medarbejder slås dagens ikke-deaktiverede `normal`-aktiviteter op. Vagter med flere biler tjekkes bil for bil via `vehicle_uses` (enhver anden bil end den tildelte giver ⚠️, også hvis den tildelte er hovedbil); enkeltbil-vagter sammenligner `vehicle_number`. `mismatch_vehicle_number` er en kommasepareret liste (ukendt plade vises som reg.nr.).
+
+**Overnatning er ikke fravær (2026-10-08):** `NON_ABSENCE_TYPES` (`calculators/dagsplan_helpers.py`) = normal/overnatning/dob_overnatning – udelades fra rød farve og fraværsadvarsel i Dagsplan. Fraværsoversigten er uændret.
+
+**Chaufførlister (2026-10-08):** `dagsplan_employees()` i dagsplan_router.py – aktive, `agreement_kind != "funktionaer"`, i disponentgruppe med `DispatcherGroup.visible_in_dagsplan` ("Medtag i Dagsplan" i Stamdata → Disponentgrupper; eksisterende grupper migreret til Nej). Uden gruppe udelades. Bruges både af sidelisten og af chauffør-vælgeren i vogntabellen (frontend læser `state.dagsplan.data.employees`). Afdelingsfilteret (`fillDagsplanFilters()`) viser også kun grupper med `visible_in_dagsplan`.
+
+**Vogntype-filter (2026-10-08, kun frontend):** afkrydsning Forvogn/Trækker/Ladbil/Øvrige (`#dagsplan-filter-type`, `state.dagsplan.typeFilter`, `onDagsplanTypeFilterChange()`). `_dagsplanVehicleType(description)`: første tegn efter trim, uden hensyn til store/små – F/M=forvogn, T=traekker, L=ladbil, ellers oevrige. Tomt sæt = alle. Med filter vises EKSTRA-linjer kun hvis de har en vogn der passer (tomme skjules). Påvirker kun vogntabellen. **Afdeling + type lægges sammen (OR)** i `renderDagsplanMain()` – afdelingsfilteret er derfor klient-side (sendes ikke længere som `dispatcher_group_id`); medarbejderfilteret er stadig server-side og altid AND. `DagsplanExtraRow.dispatcher_group_id` = den valgte vogns afdeling.
+
+**Effektiv vogn – én regel (2026-10-08):** `dagsplan_helpers.py` – `dagsplan_vehicles_query()` (vognpark + ikke slettet), `fast_bil_defaults()` (kun AKTIVE medarbejdere, laveste id ved flere), `effective_vehicle_for_employee()` (gemt tildeling på en Dagsplan-vogn, ellers Fast bil hvis vognen ikke har en gemt række den dag). Bruges af både `_build_vehicle_rows()` og autoudfyld i `create_manual_activity()`.
+
+**Slettede vogne (2026-10-08):** `Vehicle.deleted_at` (blød sletning, `delete_vehicle` i vehicles.py). 409-advarsel (bekræft → `?force=true`) hvis vognen er skrevet på ikke-deaktiverede vagter i en ulåst periode (reg.nr., vognnr. uden reg.nr., eller i `vehicle_uses`) eller er Fast bil/fraværsvogn/standardvogn (nulstilles). Historiske Dagsplan-rækker og materielt fravær (til og med i dag) bevares og vises som død tekst (`deleted: true` / `vehicle_deleted`); fremtidige slettes/afkortes. Slettede vogne skjules i `GET /api/vehicles` og afvises som valg overalt. Genoprettes samme nummerplade, omdøbes den slettedes plade til "REG (slettet ID)". Permission-håndhævelse testes over HTTP i `tests/test_dagsplan_permission_enforcement.py` (rå ASGI-klient, da httpx ikke er i requirements).
 
 **Farveprioritet på medarbejderlisten** (altid ufiltreret, uanset disponentgruppe-/medarbejder-filtrene på hovedtabellen): gul (comment_only – vagtplan-kommentar) > rød (absent – fravær) > grøn (assigned) > grå (none). En medarbejder med fravær forbliver gul selv når vedkommende samtidig er tildelt en vogn.
 
 **Dobbelttildeling blokeres ikke:** forsøger man at tildele en medarbejder der allerede har en anden tildeling eller registreret fravær samme dag, returneres 409 med en menneskelæsbar advarsel i stedet for en hård fejl – brugeren kan bekræfte og gennemføre alligevel. *(Tilføjet efter brugerønske – oprindeligt ingen validering.)*
 
-**Autoudfyld af vognnummer:** `create_manual_activity()` (activities.py:~491-497) slår `daily_plan_assignments` op på `(employee_id, start_time.date())` når en `normal`-aktivitet oprettes med tomt `vehicle_number`. Gælder KUN "normal tid", overskriver aldrig et allerede udfyldt felt, og er uafhængig af den eksisterende disponentgruppe-baserede autoudfyldning for fraværstyper (`applyDispatcherGroupVehicleDefault()`) – de to mekanismer lever side om side. Frontend-modstykket er `applyDagsplanVehicleDefault()` i app.js (~linje 2237).
+**Autoudfyld af vognnummer:** `create_manual_activity()` (activities.py:~627) bruger `effective_vehicle_for_employee()` (se ovenfor) når en `normal`-aktivitet oprettes med tomt `vehicle_number`. Gælder KUN "normal tid", overskriver aldrig et allerede udfyldt felt, og er uafhængig af den eksisterende disponentgruppe-baserede autoudfyldning for fraværstyper (`applyDispatcherGroupVehicleDefault()`) – de to mekanismer lever side om side. Frontend-modstykket er `applyDagsplanVehicleDefault()` i app.js (~linje 2237).
 
 **EKSTRA-rækkerne** (10 faste pladser til hjælp på pladsen/lærlinge) indgår ALDRIG i vognnummer-autoudfyldning eller lønberegning – kun "Fast bil"/rigtige vogne gør.
+
+**Vogn på EKSTRA-linje (2026-10-08):** `DailyPlanExtraAssignment.vehicle_id` (nullable, kun den dag). Vognfeltet har placeholder "EKSTRA"; kun vogne UDEN Vognpark-flueben (`_dagsplanExtraVehicleOptions()`, 400 ellers). Beskrivelsen vises; har vognen en fast chauffør (`fast_bil_defaults`), sætter serveren chaufføren ved vognskift. Samme vogn på to EKSTRA-linjer samme dag → 409 (force). Fjernes vognen fra linjen, fjerner serveren også chaufføren (linjen bliver grå). `vehicle_id` ændres kun når feltet sendes (`model_fields_set`). Bruges kun til ⚠️ – ikke autoudfyld, ikke materielt fravær. Slettes vognen, fjernes den fra fremtidige EKSTRA-linjer; historiske vises "(slettet)".
 
 ---
 
