@@ -1183,6 +1183,8 @@ def _build_danloen_csv(employees, period, db: Session) -> bytes:
             ("SYGDOM",         calc["sygdom_hours"],                                              calc["hourly_rates"]["sygdom"]),
             ("PARAGRAF_56",    calc["paragraf_56_syg_hours"],                                     calc.get("dagpenge_sats", 137.43)),
             ("BARN_1SYGEDAG",  calc["barn_1sygedag_u_loen_hours"],                                calc.get("dagpenge_sats", 137.43)),
+            # Feriefri: alle får kode 81 (dage); timerne går til kode 5 for fuldlønnede
+            # og kode 63 (under SH-udbetaling) for timelønnede – bekræftet af bruger 2026-10-08.
             ("FERIEFRI",       _builtin_absence_qty(pt, "FERIEFRI", "feriefri", calc["feriefri_hours"],
                                                       emp.id, period.start_date, period.end_date, db), calc["hourly_rates"]["feriefri"]),
             *([("FERIEFRI_FULDLOENNET",  calc["feriefri_hours"], calc["hourly_rates"]["feriefri"])] if emp.fuldloennet else []),

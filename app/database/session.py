@@ -642,23 +642,31 @@ def _ensure_springer_pay_type():
 
 
 def _ensure_feriefri_fuldloennet_pay_type():
-    """Seeder FERIEFRI_FULDLOENNET-løntypekode til eksisterende databaser (idempotent)."""
+    """Seeder FERIEFRI_FULDLOENNET- og FERIEFRI_TIMELOENNET-løntypekoder til
+    eksisterende databaser (idempotent). Uden FERIEFRI_TIMELOENNET faldt Danløn-
+    CSV'en tilbage til kode 1 og lagde timelønnedes feriefri oven i normal tid."""
     from database.models import MasterPayType
-    from calculators.pay_rates import DANLOEN_CODE_FERIEFRI_FULDLOENNET
+    from calculators.pay_rates import (
+        DANLOEN_CODE_FERIEFRI_FULDLOENNET, DANLOEN_CODE_FERIEFRI_TIMELOENNET,
+    )
     db = SessionLocal()
     try:
-        if not db.query(MasterPayType).filter(MasterPayType.code_key == "FERIEFRI_FULDLOENNET").first():
-            db.add(MasterPayType(
-                code_key="FERIEFRI_FULDLOENNET", label="Feriefri fuldlønnet",
-                danloen_code=DANLOEN_CODE_FERIEFRI_FULDLOENNET,
-                include_in_csv=True, sort_order=17,
-                csv_quantity_type="hours", csv_rate_source="hourly",
-                csv_include_rate=True, csv_include_total=False,
-            ))
+        for code_key, label, code, sort_order in [
+            ("FERIEFRI_FULDLOENNET", "Feriefri fuldlønnet", DANLOEN_CODE_FERIEFRI_FULDLOENNET, 17),
+            ("FERIEFRI_TIMELOENNET", "Feriefri timelønnet", DANLOEN_CODE_FERIEFRI_TIMELOENNET, 18),
+        ]:
+            if not db.query(MasterPayType).filter(MasterPayType.code_key == code_key).first():
+                db.add(MasterPayType(
+                    code_key=code_key, label=label,
+                    danloen_code=code,
+                    include_in_csv=True, sort_order=sort_order,
+                    csv_quantity_type="hours", csv_rate_source="hourly",
+                    csv_include_rate=True, csv_include_total=False,
+                ))
         db.commit()
     except Exception as e:
         db.rollback()
-        logging.error(f"Fejl ved seeding af FERIEFRI_FULDLOENNET-løntypekode: {e}")
+        logging.error(f"Fejl ved seeding af feriefri-løntypekoder: {e}")
     finally:
         db.close()
 
