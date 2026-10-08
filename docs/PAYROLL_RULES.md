@@ -98,11 +98,11 @@ Se `DATA_MODEL.md` for tabelstruktur og `CODEREF.md` for implementeringsdetaljer
 - EUD-lærlinge lønnes efter år af lærekontrakten, regnet **baglæns** fra slutdatoen: sidste år, næstsidste år, tredjesidste år. Alt før tredjesidste år får tredjesidste-satsen (overenskomsten har ikke flere trin).
 - Skifter eleven trin inde i en lønperiode, gælder den nye sats **hele lønperioden**.
 - Trinnene er overenskomsttyperne `Lærling (EUD) … af lærerkontrakt`. Systemet skifter aldrig selv: lønbogholderen får en popup (30 dage før lønperioden, påmind igen 7 dage før) og godkender, ændrer, udsætter eller bevarer satsen med en bemærkning. Et godkendt skift træder i kraft fra lønperiodens start; Lønkørsel bruger typen for perioden.
-- Afviger en elevs type fra trinnet i en åben periode, vises "Mulig fejl i elevløn" i popup og i Lønkørsel (eksporten blokeres ikke), indtil typen rettes eller bevares med en bemærkning.
+- Afviger en elevs type fra trinnet i en åben periode, vises "Mulig fejl i elevløn" i Advarsler (eksporten blokeres ikke), indtil typen rettes eller bevares med en bemærkning.
 - Voksenlærlinge (fyldt 25 ved aftalens indgåelse, § 8 stk. 4), EGU-elever og disponentspecialet har ingen trin.
 - Popups vises kun for roller hvor rettigheden *Godkend elevlønændring* er sat eksplicit (ikke via systemrollen).
 - Trykker en lønbogholder "Behandl", låses skiftet for de andre ("Behandles af …") i op til 15 minutter. Der kan kun være én åben beslutning pr. skift.
-- Perioden der lige er slut tjekkes altid (den køres typisk nu). Dialogen foreslår den første åbne lønperiode fra trinnets start. Er en periode allerede låst (eksporteret), vises beløbet der mangler ("skal efterreguleres") – regnet som forskellen i Lønafregningens "I alt" med den rigtige type – i dialogen, i Lønkørsel og i loggen. Efterreguleringen laves indtil videre manuelt i Danløn.
+- Kun den aktuelle lønperiode og perioden der lige er slut tjekkes (den køres typisk nu). Ældre åbne perioder tjekkes ikke, da systemet kun kender medarbejderens type i dag (ikke historikken). Dialogen foreslår den første åbne lønperiode fra trinnets start. Er en periode allerede låst (eksporteret), vises beløbet der mangler ("skal efterreguleres") – regnet som forskellen i Lønafregningens "I alt" med den rigtige type – i dialogen, i Lønkørsel og i loggen. Efterreguleringen laves indtil videre manuelt i Danløn.
 - Ændres en elevs datoer, voksenelev-markering eller overenskomsttype, annulleres åbne beslutninger automatisk (logges), og advarslen kommer igen med de rigtige datoer.
 - Alle beslutninger logges i audit-loggen med gammel → ny værdi.
 
@@ -112,10 +112,10 @@ Se `DATA_MODEL.md` for tabelstruktur og `CODEREF.md` for implementeringsdetaljer
   udfyldt, ellers fra ansættelsesdatoen. Ligger datoen inde i en lønperiode, gælder den nye sats hele perioden.
   Varsel før, godkend fra en lønperiode, 'Mulig fejl i løn' hvis det er glemt, efterregulering for låste perioder.
   Medarbejdere hvor den gamle anciennitetsadvarsel er afvist, springes over.
-- **Advarsler-oversigten** erstatter de enkelte popups: Mulig fejl i løn · Lønstigninger (elevløn + anciennitet) ·
+- **Advarsler-oversigten** erstatter de enkelte popups: Mulig fejl i løn · Kommende ændringer i overenskomst (elevløn + anciennitet) ·
   Øvrige (nye satser, §56, mærkedage). 🔔 i toppen viser antallet. Vinduet åbner kun af sig selv ved start, når der er
   nye advarsler.
-- **Personlige indstillinger** (⚙ Indstillinger): Lønstigninger – første besked (standard 30 dage før lønperioden) og
+- **Personlige indstillinger** (⚙ Indstillinger): Kommende ændringer i overenskomst – første besked (standard 30 dage før lønperioden) og
   påmind igen (7 dage, eller aldrig). Øvrige – første besked (højst 30 dage), anden besked (7 dage) og på dagen;
   "OK" skjuler kun til næste påmindelse. Man ser kun indstillinger for de advarsler rollen giver.
 

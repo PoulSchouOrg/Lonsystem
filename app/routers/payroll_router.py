@@ -936,14 +936,7 @@ def payroll_preview(period_start: Optional[str] = None,
         "period_status": period.status.value,
         "employees": results,
         "has_unresolved_pending": any(r["has_pending"] for r in results),
-        "elev_warnings": _elev_warnings(period, db),
     }
-
-
-def _elev_warnings(period, db: Session) -> list:
-    """Mulige fejl i elevløn-trin for perioden (vises i Lønkørsel, blokerer ikke eksport)."""
-    from calculators.elev_agreement import mismatches
-    return mismatches(db, date.today(), [period.start_date])
 
 
 def _build_proevekoersel_workbook(employees, period, db):

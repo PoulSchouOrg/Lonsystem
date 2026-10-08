@@ -137,16 +137,14 @@ def is_closed(db: Session, period_start: date) -> bool:
 
 
 def _periods_to_check(db: Session, today: date) -> list:
-    """Den aktuelle lønperiode, perioden der lige er slut (den køres typisk nu) og
-    ældre perioder der stadig er åbne – låste perioder kan ikke rettes."""
+    """Den aktuelle lønperiode og perioden der lige er slut (den køres typisk nu), hvis den ikke er låst.
+    Ældre åbne perioder tjekkes IKKE: systemet kender kun medarbejderens type i dag, ikke historikken,
+    så gamle perioder (fx juni 2025, aldrig låst) gav falske 'Mulig fejl' (rettet 2026-10-07)."""
     current = period_start_for_date(today)
     starts = {current}
     previous = current - timedelta(days=PERIOD_DAYS)
     if not is_closed(db, previous):
         starts.add(previous)
-    for p in db.query(PayPeriod).filter(PayPeriod.status == PayPeriodStatus.open,
-                                        PayPeriod.start_date < current).all():
-        starts.add(p.start_date)
     return sorted(starts)
 
 
