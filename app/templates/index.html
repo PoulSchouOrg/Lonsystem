@@ -1154,6 +1154,13 @@
           <button type="button" class="btn btn-secondary" style="font-size:13px;padding:5px 14px" onclick="addPauseSuggestion('12:00', '12:45')">12:00–12:45</button>
         </div>
       </div>
+      <div class="form-group" id="manual-overnight-group" style="display:none">
+        <div style="display:flex;align-items:center;gap:8px;font-weight:500">
+          <input type="checkbox" id="manual-add-overnight" style="width:16px;height:16px;cursor:pointer;margin:0">
+          <span>Overnatning</span>
+          <span id="manual-overnight-summary" style="font-size:13px;font-weight:400;color:var(--text-light)"></span>
+        </div>
+      </div>
       <div class="form-group" id="manual-comment-group">
         <label>Kommentar</label>
         <textarea id="manual-comment" rows="2"></textarea>
@@ -1240,6 +1247,38 @@
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-pause')">Annuller</button>
       <button class="btn btn-primary" onclick="confirmPause()">Tilføj</button>
+    </div>
+  </div>
+</div>
+
+<!-- Overnatning til aktivitet (fra opret-aktivitet-modalen) -->
+<div id="modal-manual-overnight" class="modal-overlay">
+  <div class="modal" style="width:400px;max-width:95vw">
+    <div class="modal-header">
+      <h2>Overnatning</h2>
+      <button class="modal-close" onclick="cancelManualOvernight()">&#215;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Fra dato <span style="color:var(--danger)">*</span></label>
+          <input type="date" id="manual-overnight-from">
+        </div>
+        <div class="form-group">
+          <label>Til dato <span style="color:var(--text-light);font-weight:400">(valgfri)</span></label>
+          <input type="date" id="manual-overnight-to">
+        </div>
+      </div>
+      <div class="form-group">
+        <div style="display:flex;align-items:center;gap:8px;font-weight:500">
+          <input type="checkbox" id="manual-overnight-dob" style="width:16px;height:16px;cursor:pointer;margin:0">
+          <span>DOB</span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="cancelManualOvernight()">Annuller</button>
+      <button class="btn btn-primary" onclick="confirmManualOvernight()">OK</button>
     </div>
   </div>
 </div>

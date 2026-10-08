@@ -2407,6 +2407,10 @@ function updateManualTypeVisibility() {
   if (!tilDatoFieldVisible || repeatOn) document.getElementById("manual-til-dato").value = "";
   const pauseSection = document.getElementById("manual-pause-section");
   if (pauseSection) pauseSection.style.display = (isDateOnly || isCommentOnly || repeatOn) ? "none" : "";
+  // "Overnatning"-fluebenet under Pauser findes kun for Normal tid.
+  const overnightAllowed = type === "normal" && !repeatOn;
+  document.getElementById("manual-overnight-group").style.display = overnightAllowed ? "" : "none";
+  if (!overnightAllowed) _resetManualOvernight();
   if (repeatOn) {
     document.getElementById("manual-end-group").style.display = "none";
     document.getElementById("manual-start-group").style.display = "";
@@ -3024,6 +3028,9 @@ async function openManualActivityModal(empId = null, dateIso = null, opts = {}) 
   document.getElementById("manual-reg-hint").textContent = "";
   document.getElementById("manual-salt").checked = false;
   document.getElementById("manual-dob").checked = false;
+  _resetManualOvernight();
+  document.getElementById("manual-add-overnight").onchange = _onManualOvernightToggle;
+  document.getElementById("modal-manual-overnight")._onClose = cancelManualOvernight;
   document.getElementById("manual-vagtplan-comment-group").style.display = _manualActivityContext.vagtplan ? "" : "none";
   document.getElementById("manual-repeat-group").style.display = _manualActivityContext.vagtplan ? "" : "none";
   document.getElementById("manual-repeat").checked = false;
@@ -3132,6 +3139,72 @@ async function openManualActivityModal(empId = null, dateIso = null, opts = {}) 
   document.getElementById("manual-reg-hint").textContent = "";
   updateManualTypeVisibility();
   openModal("modal-manual-activity");
+}
+
+// ── Overnatning tilknyttet ny Normal tid-aktivitet ─────────────────────────
+// Valget gemmes her og oprettes først sammen med aktiviteten (confirmManualActivity).
+let _manualOvernight = null; // { from, to, dob, empId }
+
+function _resetManualOvernight() {
+  _manualOvernight = null;
+  document.getElementById("manual-add-overnight").checked = false;
+  document.getElementById("manual-overnight-summary").textContent = "";
+}
+
+function _onManualOvernightToggle() {
+  if (!this.checked) { _resetManualOvernight(); return; }
+  const startDate = document.getElementById("manual-start")?.querySelector(".dt-date")?.value || "";
+  document.getElementById("manual-overnight-from").value = startDate;
+  document.getElementById("manual-overnight-to").value = "";
+  document.getElementById("manual-overnight-dob").checked = false;
+  openModal("modal-manual-overnight");
+}
+
+function cancelManualOvernight() {
+  closeModal("modal-manual-overnight");
+  _resetManualOvernight();
+}
+
+function _manualOvernightDates(o) {
+  return o.to ? getAllDates(o.from, o.to) : [o.from];
+}
+
+// Advarer hvis medarbejderen allerede har en (DOB-)overnatning på en af datoerne.
+// Returnerer true hvis der kan fortsættes.
+async function _confirmExistingOvernights(empId, dates) {
+  // Overnatninger gemmes som start=slut=00:00, så de kun fanges af intervalfilteret
+  // når søgningen starter dagen før.
+  const dayBefore = new Date(dates[0] + "T12:00:00");
+  dayBefore.setDate(dayBefore.getDate() - 1);
+  let acts;
+  try {
+    acts = await GET(`/api/activities?employee_id=${empId}&date_from=${dayBefore.toISOString().slice(0, 10)}&date_to=${dates[dates.length - 1]}`);
+  } catch (e) { toast(e.message, "error"); return false; }
+  const hits = acts.filter(a =>
+    (a.activity_type === "overnatning" || a.activity_type === "dob_overnatning") &&
+    a.status !== "deactivated" &&
+    dates.includes(a.start_time.slice(0, 10))
+  );
+  if (!hits.length) return true;
+  const fmt = d => { const [y, m, day] = d.split("-"); return `${day}-${m}-${y}`; };
+  const lines = hits.map(a => `• ${fmt(a.start_time.slice(0, 10))}: ${TYPE_LABELS[a.activity_type] || a.activity_type}`).join("\n");
+  return window.confirm(`Advarsel: Der er allerede oprettet overnatning på:\n\n${lines}\n\nVil du stadig tilføje overnatning?`);
+}
+
+async function confirmManualOvernight() {
+  const from = document.getElementById("manual-overnight-from").value;
+  const to   = document.getElementById("manual-overnight-to").value;
+  const dob  = document.getElementById("manual-overnight-dob").checked;
+  if (!from) { toast("Angiv dato for overnatningen", "error"); return; }
+  if (to && to < from) { toast("Til dato skal være på eller efter fra dato", "error"); return; }
+  const empId = parseInt(document.getElementById("manual-employee").value);
+  const o = { from, to: to || "", dob, empId };
+  if (!(await _confirmExistingOvernights(empId, _manualOvernightDates(o)))) return;
+  _manualOvernight = o;
+  const fmt = d => { const [y, m, day] = d.split("-"); return `${day}-${m}-${y}`; };
+  document.getElementById("manual-overnight-summary").textContent =
+    `(${fmt(from)}${o.to ? " – " + fmt(o.to) : ""}${dob ? ", DOB" : ""})`;
+  closeModal("modal-manual-overnight");
 }
 
 function confirmAbsenceConflict() {
@@ -3483,6 +3556,15 @@ async function confirmManualActivity() {
     if (!window.confirm(`Advarsel: Der er ${noun} der overlapper med det valgte tidsrum:\n\n${lines}\n\nVil du stadig oprette aktiviteten?`)) return;
   }
 
+  // Tilknyttet overnatning (kun Normal tid) – tjekkes før noget oprettes.
+  const overnight = (actType === "normal" && _manualOvernight) ? _manualOvernight : null;
+  const overnightDates = overnight ? _manualOvernightDates(overnight) : [];
+  if (overnight) {
+    if (await _rejectIfLockedDates(overnightDates)) return;
+    // Medarbejderen er skiftet efter pop-uppen blev bekræftet → advar igen for den nye.
+    if (overnight.empId !== empId && !(await _confirmExistingOvernights(empId, overnightDates))) return;
+  }
+
   try {
     await POST("/api/activities", {
       employee_id: empId,
@@ -3504,7 +3586,29 @@ async function confirmManualActivity() {
       const emp = state.employees.find(e => e.id === empId);
       if (emp) emp.terminsdato = terminsdato;
     }
-    toast("Aktivitet oprettet", "success");
+    if (overnight) {
+      const overnightType = overnight.dob ? "dob_overnatning" : "overnatning";
+      const groupId = overnightDates.length > 1 ? _genGroupId() : undefined;
+      let createdOvernights = 0;
+      try {
+        for (const iso of overnightDates) {
+          await POST("/api/activities", {
+            employee_id: empId,
+            activity_type: overnightType,
+            start_time: iso + "T00:00:00",
+            end_time:   iso + "T00:00:00",
+            absence_group_id: groupId,
+            source: _manualActivityContext.vagtplan ? "vagtplan" : undefined,
+          });
+          createdOvernights++;
+        }
+        toast(`Aktivitet og ${createdOvernights === 1 ? (overnight.dob ? "DOB-overnatning" : "overnatning") : `${createdOvernights} ${overnight.dob ? "DOB-overnatninger" : "overnatninger"}`} oprettet`, "success");
+      } catch (e) {
+        toast(`Aktivitet oprettet, men overnatning kunne ikke oprettes (${createdOvernights} af ${overnightDates.length} oprettet): ${e.message}`, "warning");
+      }
+    } else {
+      toast("Aktivitet oprettet", "success");
+    }
     closeModal("modal-manual-activity");
     await _afterManualActivitySaved(empId, start.slice(0, 10));
   } catch (e) { toast(e.message, "error"); }
