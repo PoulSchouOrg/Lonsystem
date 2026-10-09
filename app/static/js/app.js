@@ -4315,7 +4315,6 @@ function onAgreementKindChange() {
 
   // Felter der ikke gælder for typen skjules kun – værdierne bevares (spec 3.3)
   const isFunktionaer = key === FUNKTIONAER;
-  document.getElementById("emp-card-group").style.display = isFunktionaer ? "none" : "";
   document.getElementById("emp-initials-star").style.display = isFunktionaer ? "" : "none";
   document.getElementById("emp-email-label").textContent = isFunktionaer ? "Email (Poulschou)" : "Email (Privat)";
   document.querySelectorAll("#modal-employee .emp-driver-only").forEach(el => {
@@ -4334,6 +4333,18 @@ function onAgreementKindChange() {
       if (kontorGroup) sel.value = String(kontorGroup.id);
     }
   }
+  updateEmpCardVisibility();
+}
+
+// Førerkortnummer: påkrævet for chauffører. Funktionærer får feltet som valgfrit,
+// når deres disponentgruppe vises i Aktivitetsoversigten (så .ddd-filer kan importeres).
+function updateEmpCardVisibility() {
+  const isFunktionaer = document.getElementById("emp-agreement-kind").value === FUNKTIONAER;
+  const groupId = parseInt(document.getElementById("emp-dispatcher-group").value);
+  const group = state.dispatcherGroups.find(g => g.id === groupId);
+  const showForOffice = isFunktionaer && !!group?.visible_in_activity_overview;
+  document.getElementById("emp-card-group").style.display = !isFunktionaer || showForOffice ? "" : "none";
+  document.getElementById("emp-card-star").style.display = isFunktionaer ? "none" : "";
 }
 
 function onElevChange() {
