@@ -298,9 +298,19 @@ def _extract_card_number(data: bytes) -> str:
     Kortnummerfeltet (CardNumber) er ifølge EU-tachografspecifikationen 16 tegn:
     14 tegn driverIdentification + 1 ciffer udskiftningsindeks + 1 ciffer
     fornyelsesindeks. De sidste 2 cifre hører ikke til det stabile kortnummer
-    (de ændrer sig når kortet fornys/udskiftes), så vi matcher det fulde
-    16-tegns felt for sikker lokalisering, men returnerer kun de første 14 tegn.
+    (de ændrer sig når kortet fornys/udskiftes), så vi returnerer kun de
+    første 14 tegn.
+
+    Kortnummeret læses fra identifikationsblokken (EF Identification, tag
+    05 20, datatype 00/02, længde 143 = 0x008F): 1 byte udstedende land
+    efterfulgt af de 16 tegn. Det virker også for udenlandske kort, hvor
+    nummeret indeholder bogstaver (fx tysk DF0000518081X0). Bekræftet
+    2026-10-09 på de danske testfiler: giver samme nummer som det gamle
+    mønster. Findes blokken ikke, bruges det gamle mønster (DK-format).
     """
+    match = re.search(rb'\x05\x20[\x00\x02]\x00\x8f.([\x21-\x7e]{14})', data, re.S)
+    if match:
+        return match.group(1).decode("ascii")
     match = re.search(rb'[A-Z]{2}\d{14}', data)
     if match:
         return match.group(0)[:14].decode("ascii")

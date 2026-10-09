@@ -7,7 +7,29 @@ from datetime import datetime, timedelta, timezone
 from parsers.ddd_parser import (
     _build_activities, _utc_to_local, ACTIVITY_REST, ACTIVITY_WORK, ACTIVITY_DRIVING,
     scan_ddd_folder, _extract_vehicle_usage_records, _lookup_vehicle_registration,
+    _extract_card_number,
 )
+
+
+def _identification_block(nation: int, card16: bytes) -> bytes:
+    """EF Identification: tag 05 20, datatype, længde 143, land + 16-tegns kortnummer."""
+    body = bytes([nation]) + card16
+    return b"\x05\x20\x00\x00\x8f" + body + b"\x00" * (143 - len(body))
+
+
+def test_card_number_danish():
+    data = b"\xff\x01" + _identification_block(0x0E, b"DK00000178901010")
+    assert _extract_card_number(data) == "DK000001789010"
+
+
+def test_card_number_german_with_letter():
+    """Tyske kort kan have bogstaver i nummeret – det gamle DK-mønster fandt dem ikke."""
+    data = b"\xff\x01" + _identification_block(0x0D, b"DF0000518081X000")
+    assert _extract_card_number(data) == "DF0000518081X0"
+
+
+def test_card_number_fallback_without_identification_block():
+    assert _extract_card_number(b"xxDK00000178901010yy") == "DK000001789010"
 
 
 def _pack(changes):
