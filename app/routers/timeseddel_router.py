@@ -331,10 +331,11 @@ def _build_pdf(calc: dict, cvr_number: str = CVR_NUMBER) -> bytes:
     headers = [
         _p('Dato', s_th),      _p('Dag', s_th),
         _p('Start', s_th_r),   _p('Slut', s_th_r),
-        _p('Timer arbejdet', s_th_r), _p('Overtid før', s_th_r),
+        _p('Timer arbejdet', s_th_r), _p('Pause', s_th_r),
+        _p('Overtid før', s_th_r),
         _p('Overtid 1–3', s_th_r), _p('Øvrig overtid', s_th_r),
     ]
-    widths_mm = [20, 15, 14, 14, 24, 22, 22, 24]
+    widths_mm = [20, 15, 14, 14, 24, 16, 22, 22, 24]
     if has_salt:
         headers.append(_p('Salt, timer', s_th_r))
         widths_mm.append(20)
@@ -373,6 +374,9 @@ def _build_pdf(calc: dict, cvr_number: str = CVR_NUMBER) -> bytes:
             _p(_esc(day.get('start_time') or ''), csr),
             _p(_esc(day.get('end_time') or ''),   csr),
             _p(_hm(_day_normal_hours(day)), csr),
+            # pause_minutes = summen af rækkens pauser (samme kilde som
+            # Excel-prøvekørslens "Pause i alt (min)"); fraværsdage har ingen.
+            _p(_hm((day.get('pause_minutes') or 0) / 60), csr),
             _p(_hm(day.get('ot_before')),   csr),
             _p(_hm(day.get('ot_13')),       csr),
             _p(_hm(day.get('ot_extra')),    csr),
