@@ -1687,7 +1687,8 @@
         </div>
         <div class="form-group" id="emp-card-group">
           <label>Førerkortnummer <span id="emp-card-star" style="color:var(--danger)">*</span></label>
-          <input type="text" id="emp-card" placeholder="DK00000000000000">
+          <input type="text" id="emp-card" placeholder="DK000000000000" maxlength="14"
+                 title="Kun de første 14 tegn (landekode + 12 cifre) – de sidste 2 cifre på kortet udelades">
         </div>
         <div class="form-group">
           <label>Initialer <span id="emp-initials-star" style="color:var(--danger);display:none">*</span></label>
